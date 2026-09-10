@@ -4,10 +4,11 @@
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://python.org)
 [![River ML](https://img.shields.io/badge/online%20ML-River-green)](https://riverml.xyz)
+[![Dataset](https://img.shields.io/badge/dataset-Kaggle%20CinC%202019-orange)](https://www.kaggle.com/datasets/salikhussaini49/prediction-of-sepsis)
 [![42 Tests Passing](https://img.shields.io/badge/tests-42%20passing-brightgreen.svg)](#running-tests)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> ⚠️ **Research prototype only.** Not validated or approved for clinical use. All data is from the publicly de-identified MIMIC-IV dataset. No real patient data (PHI) is processed.
+> ⚠️ **Research prototype only.** Not validated or approved for clinical use. All data is from the publicly available PhysioNet/CinC Challenge 2019 dataset. No real patient data (PHI) is processed.
 
 ---
 
@@ -107,19 +108,19 @@ The administrator uses the **Admin page** and the **audit export** feature to:
 Here is what happens from the moment a patient's heart rate monitor sends a reading to the moment a clinician sees an alert:
 
 ### Step 1 — Vitals stream in continuously
-Every time a bedside monitor records a heart rate, blood pressure, SpO₂, respiratory rate, temperature, or GCS reading, that data is sent as an **event** into the system. Lab results (lactate, WBC, creatinine, etc.) are also ingested as they result from the lab.
+The system ingests data from the **PhysioNet/CinC Challenge 2019** dataset, replayed as if arriving live from real ICU monitors. Each hourly row from a patient's PSV file is emitted as a sequence of individual feature events — one per vital sign or lab value.
 
-In the prototype, this is **simulated** by replaying the MIMIC-IV dataset as if it were arriving live from real monitors.
+In a real hospital deployment, these events would come from bedside monitors via HL7 FHIR or BedMaster SDK.
 
 ### Step 2 — Sliding window features are computed
-For each patient, the system maintains **rolling windows** of the last 15 minutes, 1 hour, and 4 hours of each vital sign. It computes:
+For each patient, the system maintains **rolling windows** of the last 1 hour, 4 hours, and 8 hours of each vital sign and lab value. It computes:
 - **Mean** (average over the window)
 - **Standard deviation** (variability — a wildly fluctuating heart rate is concerning)
 - **Min and max** (peak values)
 - **Trend slope** (is HR rising or falling? By how much per minute?)
-- **Staleness** (how long ago was this vital last measured? A missing BP reading for 2 hours is itself a warning sign)
+- **Staleness** (how long ago was this vital last measured?)
 
-This produces ~300 features per patient per event — capturing not just the current value but the *trajectory* and *pattern* of change.
+This produces **~250+ features per patient per event** — capturing not just the current value but the *trajectory* and *pattern* of change.
 
 ### Step 3 — Two models score the patient in parallel
 Every time features are updated, **two models** independently score the patient:
@@ -130,7 +131,7 @@ Every time features are updated, **two models** independently score the patient:
 - Starts somewhat uncertain but improves rapidly with experience
 
 **Baseline Model (Logistic Regression):**
-- Trained once on historical MIMIC-IV data, then **frozen**
+- Trained once on historical PhysioNet CinC 2019 data, then **frozen**
 - Never changes — it is the validated safety reference
 - If the online model starts performing worse than this, the system automatically falls back to it
 
@@ -144,7 +145,7 @@ A **smart selector** compares the rolling performance (AUROC) of both models:
 Three statistical detectors run in parallel, watching for signs that the patient population has shifted:
 - **ADWIN**: monitors the distribution of prediction scores
 - **DDM**: monitors the model's error rate on known outcomes
-- **Page-Hinkley**: detects sudden mean shifts (e.g., a sensor recalibration that changes all SpO₂ readings by +2%)
+- **Page-Hinkley**: detects sudden mean shifts
 
 When drift is detected, the system logs it, takes a model snapshot, and alerts the monitoring dashboard.
 
@@ -161,7 +162,7 @@ The clinician clicks **True Alert** (the patient really was deteriorating) or **
 - Improves alert specificity over time (less false alarms)
 
 ### Step 8 — Everything is logged for regulatory review
-Every single prediction, every model update, every drift event, every rollback, and every piece of clinician feedback is stored in an **append-only SQLite database**. No row is ever modified or deleted. The Admin page can export this to CSV for regulatory or incident review.
+Every single prediction, every model update, every drift event, every rollback, and every piece of clinician feedback is stored in an **append-only SQLite database**. No row is ever modified or deleted.
 
 ---
 
@@ -184,7 +185,7 @@ Navigation
   ○ 🔧 Admin              ← controls, export
 ─────────────────────
 Stream Control
-  [N ICU stays: 200  ▲▼]
+  [N Patients: 200  ▲▼]
   [▶ Start]  [⏹ Stop]
 
   Stream: 🟢 Running
@@ -197,7 +198,7 @@ Auto-refresh: [5s ────]
 
 This is the **primary page nurses watch** during a shift.
 
-**Top header bar** (always visible on all pages):
+**Top header bar:**
 ```
 🏥 Real-Time Patient Deterioration EWS  [ONLINE MODEL]  [⚡ DRIFT DETECTED (2)]
 Events: 12,450  |  Predictions: 8,230  |  Alerts: 14  |  Patients: 87  |  AUROC: 0.743
@@ -206,81 +207,40 @@ Events: 12,450  |  Predictions: 8,230  |  Alerts: 14  |  Patients: 87  |  AUROC:
 **Alert cards** — each high-risk patient gets a colour-coded card:
 
 ```
-🚨 ALERT  Patient 3A7F2B91  ████████████████░░░░  81%  [CRITICAL]
-                             Model: online  |  2026-09-08 14:23:11
+🚨 ALERT  Patient p003A7F  ████████████████░░░░  81%  [CRITICAL]
+                             Model: online  |  2026-09-10 14:23:11
 
-  📋 Why? — High risk driven by elevated HR and falling blood pressure  ▼
+  📋 Why? — High risk driven by elevated HR and rising Lactate  ▼
 
   ┌─────────────────────────────────────────────────────────┐
-  │ Feature                    Value      Contribution  Dir  │
-  │ HR avg last 1hr: 118 bpm   118.0     +0.241        🔴↑  │
-  │ BP trend: -3.2 mmHg/min    -3.2      +0.198        🔴↑  │
-  │ Shock index (HR/SBP): 1.6   1.6      +0.167        🔴↑  │
-  │ Lactate last 4hr: 3.1 mmol  3.1      +0.143        🔴↑  │
-  │ SpO₂ avg last 15min: 93%    93.0     -0.089        🟢↓  │
+  │ Feature                      Value    Contribution  Dir  │
+  │ HR avg last 1hr: 118 bpm     118.0   +0.241        🔴↑  │
+  │ Lactate avg last 4hr: 3.1    3.1     +0.198        🔴↑  │
+  │ Shock index (HR/SBP): 1.6   1.6     +0.167        🔴↑  │
+  │ SBP trend: -3.2 mmHg/hr     -3.2    +0.143        🔴↑  │
+  │ O2Sat avg last 1hr: 93%      93.0    -0.089        🟢↓  │
   └─────────────────────────────────────────────────────────┘
 
   [✅ True Alert]  [❌ False Alert]
 ```
 
-Below the alert cards, a **Recent Predictions table** shows the last 50 predictions with timestamps, scores, and alert status for audit trail visibility.
-
 ### Page 2 — 📈 Patient Timeline
-
-A **per-patient risk score chart** for reviewing deterioration trajectories.
-
-- **Patient selector dropdown** — choose any patient in the current simulation
-- **Risk score chart** showing:
-  - Orange line: active risk score (online or baseline, whichever is selected)
-  - Blue dotted line: online model's raw score
-  - Green dotted line: baseline model's raw score
-  - Red dashed line: alert threshold (65%)
-  - Red shaded zone: alert region (>65%)
-  - Red triangles: moments when an alert actually fired
-- **Useful for physicians** reviewing "when did this patient start deteriorating and did we catch it in time?"
+Per-patient risk score chart showing:
+- Orange line: active risk score
+- Blue dotted line: online model's raw score
+- Green dotted line: baseline model's raw score
+- Red dashed line: alert threshold (65%)
+- Red triangles: moments when an alert actually fired
 
 ### Page 3 — 📊 Performance
-
-For **charge nurses, data scientists, and quality improvement** teams.
-
-**KPI row:**
-```
-Active Model   Online AUROC   Baseline AUROC   Rollbacks   Drift Events   Alerts (24h)
-Online         0.743          0.718            1           3              14
-```
-
-**Rolling AUROC chart**: plots the online model's AUROC over time, with the baseline AUROC as a green reference line and the rollback threshold as a red dotted line. If the blue line dips below the red → rollback.
-
-**Risk score distribution histogram**: shows what fraction of predictions are in each risk band. A well-calibrated model should show most patients low-risk with a small high-risk tail.
-
-**Model Snapshot Registry table**: every auto-snapshot of the online model with version number, timestamp, reason, and AUROC at time of snapshot.
-
-**Rollback Events**: list of every time the online model was rolled back to the baseline, with the AUROC gap that triggered it.
-
-**Drift Event Log**: list of every ADWIN/DDM/Page-Hinkley detection with detector type, timestamp, severity (warning vs drift).
+KPI row, rolling AUROC chart, risk score distribution histogram, model snapshot registry, and drift event log.
 
 ### Page 4 — 🔧 Admin
-
-For **data scientists, ML engineers, and administrators**.
-
-**Model Controls:**
-- **⏪ Force Rollback to Baseline** — immediately switch to the static model (e.g., if a bug is suspected in the online model)
-- **✅ Restore Online Model** — switch back to the online model after review
-- **📸 Take Manual Snapshot** — checkpoint the current model state before a planned event
-
-**Audit Export:**
-- **📥 Export Predictions CSV** — exports all predictions to `logs/predictions_export.csv` for regulatory review, contains: prediction ID, patient ID, timestamp, risk score, alert fired, model version, model type, feature hash
-
-**Shadow Mode toggle:**
-- When ON: the online model makes predictions and they are logged, but **alerts are NOT shown to clinicians**. Used during validation phases (e.g., when deploying a new version and running it alongside the old one to compare before going live)
-
-**System Status panel**: full JSON dump of all pipeline counters for debugging.
+Force rollback, restore online model, manual snapshot, CSV export, shadow mode toggle, system JSON.
 
 ---
 
 ## 🔄 Clinical Workflow — Step by Step
-
-Here is the **end-to-end workflow** from a clinician's perspective during a typical ICU shift:
 
 ```
 START OF SHIFT
@@ -294,14 +254,13 @@ START OF SHIFT
     │
 DURING SHIFT (continuous)
     │
-    ├── Patient vitals stream in from bedside monitors every 1–5 minutes
+    ├── Patient data streams in (PhysioNet replay at 60× real-time)
     │
     ├── System computes risk scores for all patients silently
-    │       • 70 patients → 70 scores updated per vital event
     │
     ├── Patient John (Bed 7) risk score crosses 65%:
     │       → 🚨 Alert card appears on dashboard
-    │       → Nurse sees: "81% risk — HR trending up 18 bpm, BP falling"
+    │       → Nurse sees: "81% risk — HR trending up, Lactate rising"
     │
     ├── Nurse goes to Bed 7, assesses patient
     │
@@ -309,14 +268,7 @@ DURING SHIFT (continuous)
     │       ✅ True Alert → patient was deteriorating (calls physician)
     │       ❌ False Alert → patient was fine (notes it for model learning)
     │
-    ├── Physician reviews Patient Timeline page for Bed 7:
-    │       • When did the score start rising? (3 hours ago)
-    │       • Which vitals drove the change? (lactate + HR)
-    │       • Decides on intervention (antibiotics, fluid resuscitation)
-    │
-    ├── System continues monitoring Bed 7 post-intervention:
-    │       • Risk score should fall as vitals improve
-    │       • If score stays elevated → another alert in 30 min (cooldown)
+    ├── System continues monitoring post-intervention
     │
 END OF SHIFT
     │
@@ -330,22 +282,22 @@ END OF SHIFT
 ## 🏗️ System Architecture
 
 ```
-Bedside Monitors / EHR
+PhysioNet CinC 2019 PSV Files
         │
-        ▼ (continuous stream of vitals events)
+        ▼ (PSV rows replayed as hourly event stream)
   ┌─────────────────────────────┐
   │     Streaming Ingestion     │  ← stream_simulator.py (or Kafka adapter)
-  │  MIMIC-IV replayed as       │
+  │  ~40K patients replayed as  │
   │  time-ordered event stream  │
   └────────────┬────────────────┘
-               │  {patient_id, timestamp, feature, value}
+               │  {patient_id, timestamp, feature_name, value}
                ▼
   ┌─────────────────────────────┐
   │   Feature Engineering       │
-  │  WindowAggregator           │  ← 15-min / 1-hr / 4-hr sliding windows
-  │  MissingDataHandler         │  ← population-median imputation
+  │  WindowAggregator           │  ← 1-hr / 4-hr / 8-hr sliding windows
+  │  MissingDataHandler         │  ← online population-median imputation
   └────────────┬────────────────┘
-               │  ~300 features per patient
+               │  ~250 features per patient
                ▼
   ┌────────────┴────────────────┐
   │                             │
@@ -371,22 +323,16 @@ Online Model               Baseline Model
   └────────────┬────────────────┘
                │
                ├──────────────────→  AuditLogger (SQLite, append-only)
-               │                     • every prediction
-               │                     • every model update
-               │                     • every drift event
-               │                     • every clinician feedback
                │
                ├──────────────────→  ModelRegistry (versioned snapshots)
-               │                     • auto-snapshot every 100 predictions
-               │                     • rollback API
                │
                ▼
   ┌─────────────────────────────┐
   │    Streamlit Dashboard      │
-  │  🚨 Patient Alerts          │  ← alert cards + explanations + feedback
-  │  📈 Patient Timeline        │  ← risk score chart per patient
-  │  📊 Performance             │  ← AUROC, drift, registry
-  │  🔧 Admin                   │  ← rollback, export, shadow mode
+  │  🚨 Patient Alerts          │
+  │  📈 Patient Timeline        │
+  │  📊 Performance             │
+  │  🔧 Admin                   │
   └─────────────────────────────┘
                ↑
   Clinician feedback (True/False alert)
@@ -405,76 +351,77 @@ pip install -r requirements.txt
 py -3 -m pip install -r requirements.txt
 ```
 
-### 2. Download MIMIC-IV data
-
-You need a **free PhysioNet account** with approved MIMIC-IV data use agreement.
-Sign up at: https://physionet.org/register/
+### 2. Download the dataset (free — no credentials needed)
 
 ```bash
-python scripts/download_mimic.py --username YOUR_PHYSIONET_USERNAME
+# Option A: Automatic via Kaggle API (recommended)
+pip install kaggle
+# Place your Kaggle API key at ~/.kaggle/kaggle.json
+# Get it from: https://www.kaggle.com/account → "Create New Token"
+python scripts/download_dataset.py
+
+# Option B: Manual
+python scripts/download_dataset.py --manual
+# Follow the printed instructions to download from Kaggle
 ```
 
-This downloads only the **required tables** (~8–15 GB compressed):
-- `hosp/`: patients, admissions, diagnoses_icd, labevents, d_labitems
-- `icu/`: icustays, chartevents, d_items, outputevents
-
-> **Tip:** Use `--tables icu` to download only ICU tables first (faster, ~5 GB) and test the pipeline before downloading the full hospital module.
+**Dataset:** [PhysioNet/CinC Challenge 2019 — Early Prediction of Sepsis](https://www.kaggle.com/datasets/salikhussaini49/prediction-of-sepsis)
+- ~40,336 ICU patients, ~1.5M hourly rows
+- 40 columns: 8 vitals + 26 labs + 6 demographics + SepsisLabel
+- ~170 MB compressed (vs 13–15 GB for MIMIC-IV)
+- **No PhysioNet account or data use agreement required**
 
 ### 3. Train the baseline safety model
 
 ```bash
-# Full training (uses all available stays):
+# Full training (all ~40K patients):
 python scripts/train_baseline.py
 
-# Faster training on a 2000-stay subset (for testing):
-python scripts/train_baseline.py --n-stays 2000
+# Faster training on 2000 patients (for testing):
+python scripts/train_baseline.py --n-patients 2000
 
 # Train XGBoost baseline instead of Logistic Regression:
 python scripts/train_baseline.py --model xgboost
 ```
 
-Training time: ~10–30 minutes depending on dataset size and hardware.
+Training time: ~5–15 minutes depending on patient count and hardware.
 Output: `models/baseline_model.pkl` and `models/baseline_meta.json`
 
 ### 4a. Run stream simulation (CLI — no browser needed)
 
 ```bash
-# Simulate 500 ICU stays at 60× real-time speed:
-python scripts/simulate_stream.py --n-stays 500 --speed 60
+# Simulate 500 patients at 60× real-time speed:
+python scripts/simulate_stream.py --n-patients 500 --speed 60
 
 # Maximum speed (stress test):
-python scripts/simulate_stream.py --n-stays 200 --no-realtime
+python scripts/simulate_stream.py --n-patients 200 --no-realtime
 
-# Full dataset, default speed (120× real-time):
+# Full dataset, default speed (60× real-time):
 python scripts/simulate_stream.py
 ```
 
-Console output looks like:
+Console output:
 ```
-🚨 ALERT  Pt 1234567  ████████████████░░░░  81%  [O]  AUROC=0.743
+🚨 ALERT  Pt p003A7F  ████████████████░░░░  81%  [O]  AUROC=0.743
     📋 High risk: HR trending up 118 bpm avg 1hr (contribution=+0.241)
        • HR avg last 1hr: 118 bpm (contribution=+0.241)
-       • BP trend: -3.2 mmHg/min (contribution=+0.198)
+       • Lactate avg 4hr: 3.1 mmol/L (contribution=+0.198)
        • Shock index 1.6 (contribution=+0.167)
 ```
 
 ### 4b. Launch the clinician dashboard (recommended)
 
 ```bash
-# Standard launch:
 py -3 -m streamlit run dashboard/app.py
-
-# Or if streamlit is on PATH:
-streamlit run dashboard/app.py
 ```
 
 Open **http://localhost:8501** in your browser. Then:
-1. Set **N ICU stays** in the sidebar (start with 200 for a quick demo)
+1. Set **N Patients** in the sidebar (start with 200 for a quick demo)
 2. Click **▶ Start** to begin streaming
 3. Watch the **🚨 Patient Alerts** page as risk scores update in real-time
 4. Switch to **📊 Performance** to watch the rolling AUROC and drift detectors
 
-### 5. Run tests (no MIMIC data required)
+### 5. Run tests (no dataset required)
 
 ```bash
 py -3 -m pytest tests/ -v --tb=short
@@ -492,10 +439,10 @@ MAJOR/
 │
 ├── src/                        # Core ML system (no UI code)
 │   ├── ingestion/
-│   │   ├── stream_simulator.py # Replays MIMIC-IV as real-time event stream
+│   │   ├── stream_simulator.py # Replays PhysioNet PSV files as real-time event stream
 │   │   └── kafka_adapter.py    # Optional: Kafka producer/consumer for production
 │   ├── features/
-│   │   ├── window_aggregator.py # Sliding-window stats per patient per vital
+│   │   ├── window_aggregator.py # Sliding-window stats per patient per vital/lab
 │   │   └── missing_handler.py   # Online population-median imputation
 │   ├── models/
 │   │   ├── online_model.py     # River Hoeffding Adaptive Tree (incremental)
@@ -519,7 +466,7 @@ MAJOR/
 │       └── drift_chart.py      # ADWIN/PH/DDM time-series charts
 │
 ├── scripts/
-│   ├── download_mimic.py       # Download MIMIC-IV from PhysioNet (credentialed)
+│   ├── download_dataset.py     # Download PhysioNet CinC 2019 from Kaggle (free)
 │   ├── train_baseline.py       # Train + evaluate offline baseline model
 │   └── simulate_stream.py      # CLI runner for end-to-end stream simulation
 │
@@ -533,13 +480,15 @@ MAJOR/
 │   ├── baseline_model.pkl      # Generated by train_baseline.py
 │   ├── baseline_meta.json      # AUROC, sensitivity, specificity from training
 │   └── snapshots/              # Auto-saved online model checkpoints
-│       ├── manifest.json       # Human-readable registry of all versions
-│       └── model_v0001_*.pkl   # Versioned model files
+│       ├── manifest.json
+│       └── model_v0001_*.pkl
 │
 ├── data/
-│   └── mimic/                  # Downloaded MIMIC-IV tables (gitignored)
-│       ├── hosp/               # Hospital module tables
-│       └── icu/                # ICU module tables
+│   └── physionet2019/          # PhysioNet CinC 2019 dataset (gitignored)
+│       └── training/           # ~40,336 PSV files (one per patient)
+│           ├── p000001.psv
+│           ├── p000002.psv
+│           └── ...
 │
 ├── logs/
 │   ├── audit.db                # SQLite audit database (append-only)
@@ -557,70 +506,56 @@ All system behaviour is controlled via `config/settings.yaml`. No code changes n
 ### Clinical Outcome Settings
 ```yaml
 outcome:
-  label: "sepsis"                  # What we're predicting
-  prediction_window_hours: 6       # How far ahead to predict (4-6 hrs is typical)
-  sofa_threshold: 2                # Delta-SOFA threshold for Sepsis-3 definition
+  label: "sepsis"
+  prediction_window_hours: 6
 ```
 
 ### Alert Settings
 ```yaml
 alerting:
   risk_threshold: 0.65             # Fire alert if score > this (65%)
-  alert_cooldown_minutes: 30       # Don't re-alert same patient within 30 min
+  alert_cooldown_minutes: 30
 ```
-> **Tuning tip**: Lower the threshold (e.g., 0.5) for higher sensitivity (catch more cases, more false alarms). Raise it (e.g., 0.75) for higher specificity (fewer alarms, may miss cases).
 
 ### Feature Window Settings
 ```yaml
 features:
-  window_sizes_minutes: [15, 60, 240]   # 15-min, 1-hr, 4-hr windows
-  staleness_threshold_minutes: 60       # Vitals older than this → treated as missing
+  window_sizes_minutes: [60, 240, 480]   # 1-hr, 4-hr, 8-hr windows
+  staleness_threshold_minutes: 120
 ```
 
 ### Model Settings
 ```yaml
 online_model:
-  type: "hoeffding_adaptive_tree"  # Most adaptive; use "logistic_regression" for max interpretability
+  type: "hoeffding_adaptive_tree"
   snapshot_every_n_predictions: 100
-  shadow_mode: false               # true = silent validation mode
+  shadow_mode: false
 
 baseline:
   rollback_auroc_gap: 0.05        # Rollback if online AUROC < baseline − 5%
 ```
 
-### Drift Detection Settings
+### Paths
 ```yaml
-drift:
-  adwin_delta: 0.002               # ADWIN sensitivity (lower = more sensitive)
-  page_hinkley_threshold: 50.0    # PH threshold for abrupt shifts
-  page_hinkley_alpha: 0.005       # PH allowed mean increase per sample
-  ddm_warning_level: 2.0          # DDM warning trigger (standard deviations)
-  ddm_drift_level: 3.0            # DDM drift trigger
-  check_every_n: 50               # Evaluate drift every N predictions
-```
-
-### Streaming Settings
-```yaml
-streaming:
-  speed_multiplier: 120            # 120× real-time (1 simulated hour = 30 wall seconds)
-  batch_size: 10                   # Events per online model update cycle
-  kafka_enabled: false             # Set true + configure below for production Kafka
+paths:
+  data_dir: "data/physionet2019"
+  training_dir: "data/physionet2019/training"   # PSV files live here
 ```
 
 ---
 
 ## 🔑 Key Design Decisions
 
-### Why online (incremental) ML instead of batch?
+### Why the PhysioNet CinC 2019 dataset?
 
 | Question | Answer |
 |----------|--------|
-| Why not just retrain nightly? | Vitals arrive every 1–5 minutes. A nightly retrain means the model is always 12+ hours behind. Online ML updates after every event. |
-| Why not store all data and retrain on it? | In a real hospital, storing years of raw ICU data is expensive and raises privacy concerns. Online ML never needs to revisit old data. |
-| How does it handle concept drift? | Seasonal illness changes, new equipment, population shifts all cause "concept drift." The Hoeffding Adaptive Tree detects and adapts to these automatically. |
+| Why not MIMIC-IV? | MIMIC-IV requires PhysioNet credentialing, 13–15 GB download, and complex multi-table joins. CinC 2019 is free, 170 MB, and pre-structured for streaming. |
+| Why is it good for online ML? | Each patient's data is an hourly time series — perfect for simulating a live event stream. Labels are inline (SepsisLabel per row) — no separate derivation needed. |
+| How many patients? | ~40,336 ICU patients, ~1.5M hourly rows, ~7% sepsis prevalence. |
 
 ### Delayed Labels
-Clinical outcomes (did the patient actually develop sepsis?) aren't known immediately. The `OnlineModel` uses a **delayed-label queue**: feature vectors are stored, and the corresponding label is only applied after `prediction_window_hours` (6 hours) have elapsed — preventing data leakage where the model could see the outcome before predicting it.
+Clinical outcomes (did the patient actually develop sepsis?) aren't known immediately. The `OnlineModel` uses a **delayed-label queue**: feature vectors are stored, and the corresponding label is only applied after `prediction_window_hours` (6 hours) have elapsed.
 
 ### Dual-model safety architecture
 ```
@@ -630,27 +565,18 @@ Baseline model (frozen, validated) →  Auto-rollback, logged, alerted
         ↓ AUROC recovers (+2% hysteresis buffer)
 Online model                       →  Reinstated automatically
 ```
-This ensures there is **always a validated, stable model** making decisions, even when the online model is going through a learning adjustment.
 
 ### Explainability
-For every alert, the system shows exactly which feature is driving the risk score and by how much:
-- **Logistic Regression**: `contribution = weight × feature_value` (signed: positive = increases risk)
+For every alert, the system shows exactly which feature is driving the risk score:
+- **Logistic Regression**: `contribution = weight × feature_value` (signed)
 - **Hoeffding Tree**: feature importances from split statistics
-- Output is translated to plain English: *"Heart rate average last 1 hour: 118 bpm (increases risk)"*
-
-This is critical in clinical settings — clinicians will not trust or act on a "black box" score.
-
-### Audit Trail
-Every prediction, model update, drift event, rollback, and clinician feedback is stored in an **append-only SQLite database** (`logs/audit.db`). The schema has no `UPDATE` or `DELETE` paths — records are immutable once written. This supports:
-- **Incident investigation** ("what did the model predict for this patient at 03:00?")
-- **Regulatory review** (export to CSV via Admin page)
-- **Model version tracing** ("which model version made this prediction?")
+- Output: *"Lactate average last 4 hours: 3.1 mmol/L (increases risk)"*
 
 ---
 
 ## 🧪 Running Tests
 
-All 42 tests run **without MIMIC-IV data** (mocked models + synthetic events):
+All 42 tests run **without the dataset** (mocked models + synthetic events):
 
 ```bash
 py -3 -m pytest tests/ -v --tb=short
@@ -660,74 +586,55 @@ Expected output:
 ```
 tests/test_audit.py::TestAuditLogger::test_init_creates_db PASSED
 tests/test_audit.py::TestAuditLogger::test_log_prediction_returns_id PASSED
-tests/test_audit.py::TestAuditLogger::test_log_and_query_recent PASSED
-tests/test_audit.py::TestAuditLogger::test_log_feedback PASSED
-tests/test_audit.py::TestAuditLogger::test_log_drift_event PASSED
-tests/test_audit.py::TestAuditLogger::test_alert_count PASSED
-tests/test_audit.py::TestAuditLogger::test_immutability_no_updates PASSED
-tests/test_drift.py::TestPageHinkley::test_no_drift_stable PASSED
-... (35 more) ...
+...
+tests/test_features.py::TestWindowAggregator::test_single_observation_mean PASSED
+tests/test_features.py::TestWindowAggregator::test_derived_shock_index PASSED
+...
 ====================== 42 passed in 5.56s ======================
 ```
 
 | Test file | What it tests |
 |-----------|--------------|
-| `test_features.py` | Window eviction, temperature °F→°C conversion, physiological range clipping, derived features (shock index, pulse pressure), sliding window stats, population median imputation |
-| `test_drift.py` | PageHinkley stable stream (no false positives), spike detection, reset; DriftDetector ADWIN/DDM/PH integration, NaN handling |
-| `test_pipeline.py` | Feature vector latency <50ms, multi-patient data isolation, ensemble rollback at correct AUROC threshold, alert cooldown timing, force rollback/restore |
-| `test_audit.py` | DB creation, prediction logging with unique ID, alert count query, feedback recording, drift event logging, immutability (no update method exposed) |
+| `test_features.py` | Window eviction, PhysioNet column names (HR/SBP/O2Sat), physiological clipping, derived features (shock index, P/F ratio, lactate_rising), sliding window stats, population median imputation |
+| `test_drift.py` | PageHinkley stable stream, spike detection, reset; ADWIN/DDM/PH integration, NaN handling |
+| `test_pipeline.py` | Feature vector latency <50ms, multi-patient isolation, ensemble rollback, alert cooldown, force rollback/restore |
+| `test_audit.py` | DB creation, prediction logging, alert count, feedback recording, drift event logging, immutability |
 
 ---
 
 ## 🏭 Extending for Production
 
-This prototype uses simplified infrastructure. Here's how to upgrade each component for a real hospital deployment:
-
 | Component | Prototype | Production Upgrade |
 |-----------|-----------|-------------------|
-| **Data source** | MIMIC-IV CSVs replayed | HL7 FHIR API, BedMaster SDK, Epic/Cerner integration |
+| **Data source** | PhysioNet CinC 2019 PSV replay | HL7 FHIR API, BedMaster SDK, Epic/Cerner integration |
 | **Streaming bus** | In-process Python generator | Apache Kafka (adapter included in `kafka_adapter.py`) |
 | **Feature store** | In-memory dict per process | Redis / Apache Flink for multi-node scalability |
 | **Online model** | Single River process | Distributed online learning (e.g., Vowpal Wabbit cluster) |
-| **Model registry** | Local `.pkl` snapshots | MLflow (feature-flagged in `registry.py`) |
-| **Audit database** | SQLite (single file) | PostgreSQL with row-level security / immutable S3 with Athena |
+| **Model registry** | Local `.pkl` snapshots | MLflow |
+| **Audit database** | SQLite (single file) | PostgreSQL with row-level security |
 | **Dashboard** | Streamlit (localhost) | React + FastAPI backend, deployed in hospital VPN |
 | **Authentication** | None | SAML/OAuth SSO integrated with hospital AD |
-| **Alerting** | Dashboard only | Integrate with existing nurse call system / pager / Vocera |
-| **Deployment** | Local Python | Docker + Kubernetes with health checks and auto-restart |
-| **Monitoring** | In-dashboard charts | Prometheus + Grafana for ops-level observability |
+| **Alerting** | Dashboard only | Integrate with nurse call system / pager / Vocera |
+| **Deployment** | Local Python | Docker + Kubernetes |
+| **Monitoring** | In-dashboard charts | Prometheus + Grafana |
 | **Compliance** | N/A | HIPAA BAA, FDA PCCP, IRB approval, HITRUST certification |
-
-### Enabling Kafka (minimal change)
-
-1. Uncomment in `requirements.txt`: `confluent-kafka>=2.4.0`
-2. Set in `config/settings.yaml`:
-   ```yaml
-   streaming:
-     kafka_enabled: true
-     kafka_bootstrap_servers: "your-kafka-broker:9092"
-     kafka_topic: "patient_vitals"
-   ```
-3. Run producer: `python -c "from src.ingestion.kafka_adapter import PatientEventProducer; ..."`
-4. The pipeline consumer replaces the simulator automatically.
 
 ---
 
 ## ⚖️ Regulatory Note
 
-Adaptive ML systems that influence clinical decisions may be regulated as **Software as a Medical Device (SaMD)** in the USA (FDA), EU (MDR/IVDR), and other jurisdictions.
+Adaptive ML systems that influence clinical decisions may be regulated as **Software as a Medical Device (SaMD)**.
 
-Key regulatory frameworks to be aware of:
-- **FDA Predetermined Change Control Plan (PCCP)**: Required for continuously-updating AI/ML-based SaMD. Specifies in advance what types of model updates are allowed without a new 510(k)/PMA submission.
-- **FDA AI/ML Action Plan**: Requires transparency, real-world performance monitoring, and clear human oversight provisions — all of which this system implements.
-- **HIPAA**: All patient data (PHI) must remain within controlled infrastructure. This prototype never connects to real PHI.
+Key frameworks:
+- **FDA Predetermined Change Control Plan (PCCP)**
+- **FDA AI/ML Action Plan**
+- **HIPAA**: All patient data (PHI) must remain within controlled infrastructure
 
 **Before any clinical deployment:**
-- Engage your legal and regulatory affairs team on day 1
 - Obtain IRB approval for any use of real patient data
-- Run in **shadow mode** for at least 4–8 weeks and validate against real outcomes before showing alerts to clinicians
-- Conduct clinical validation studies (prospective, on your target population)
-- Establish standard operating procedures (SOPs) for model updates and rollbacks
+- Run in **shadow mode** for at least 4–8 weeks before showing alerts to clinicians
+- Conduct clinical validation studies on your target population
+- Establish SOPs for model updates and rollbacks
 
 ---
 
@@ -735,12 +642,12 @@ Key regulatory frameworks to be aware of:
 
 MIT License. See [LICENSE](LICENSE).
 
-MIMIC-IV data is governed by the [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/mimiciv/view-license/2.2/). You must complete the data use agreement before accessing MIMIC-IV.
+PhysioNet/CinC Challenge 2019 data is governed by the [PhysioNet Credentialed Health Data License 1.5.0](https://physionet.org/content/challenge-2019/1.0.0/). Download via Kaggle at: [kaggle.com/datasets/salikhussaini49/prediction-of-sepsis](https://www.kaggle.com/datasets/salikhussaini49/prediction-of-sepsis)
 
 ---
 
 ## 🙏 Acknowledgements
 
-- **MIMIC-IV**: Johnson, A., et al. (2023). MIMIC-IV (version 2.2). PhysioNet.
+- **PhysioNet/CinC Challenge 2019**: Reyna, M., et al. (2019). Early Prediction of Sepsis from Clinical Data: The PhysioNet/Computing in Cardiology Challenge 2019.
 - **River**: Montiel, J., et al. (2021). River: machine learning for streaming data in Python.
 - **Sepsis-3 criteria**: Singer, M., et al. (2016). The Third International Consensus Definitions for Sepsis and Septic Shock. JAMA.
