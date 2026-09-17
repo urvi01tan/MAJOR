@@ -1,18 +1,3 @@
-"""
-Static Baseline Model (Safety Net)
-====================================
-Loads a pre-trained scikit-learn model as the validated safety baseline.
-This model is NEVER updated during runtime — it provides a stable,
-validated reference point for the ensemble selector and rollback logic.
-
-Training happens offline via: python scripts/train_baseline.py
-The trained model is saved to models/baseline_model.pkl
-
-Supports:
-  - LogisticRegression (primary, most interpretable)
-  - XGBoost (secondary, higher accuracy)
-"""
-
 from __future__ import annotations
 
 import json
@@ -34,13 +19,6 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
 
 
 class BaselineModel:
-    """
-    Wraps the pre-trained static baseline classifier.
-
-    The model is loaded at startup and remains frozen during runtime.
-    All predictions are logged alongside the model version for audit.
-    """
-
     def __init__(self, cfg_path: str = "config/settings.yaml"):
         self.cfg = _load_cfg(cfg_path)
         self.model_path = Path(self.cfg["paths"]["baseline_model"])
@@ -75,7 +53,8 @@ class BaselineModel:
         Missing features are imputed to 0.0 (conservative).
         """
         if self._model is None:
-            raise RuntimeError("Model not loaded. Call baseline.load() first.")
+            log.warning("[BaselineModel] Not loaded — returning 0.0. Train with scripts/train_baseline.py")
+            return 0.0
 
         x = np.array(
             [features.get(f, 0.0) if not math.isnan(features.get(f, float("nan"))) else 0.0

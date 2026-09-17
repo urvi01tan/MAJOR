@@ -1,5 +1,3 @@
-"""Tests for audit logger."""
-
 from __future__ import annotations
 
 import math
@@ -16,7 +14,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 @pytest.fixture
 def temp_audit_db(tmp_path, monkeypatch):
-    """Override audit DB path to a temp file."""
     import yaml
     with open("config/settings.yaml") as f:
         cfg = yaml.safe_load(f)
@@ -25,6 +22,7 @@ def temp_audit_db(tmp_path, monkeypatch):
     with open(cfg_path, "w") as f:
         yaml.dump(cfg, f)
     return cfg_path
+
 
 
 class TestAuditLogger:

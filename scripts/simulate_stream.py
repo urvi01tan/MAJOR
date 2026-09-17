@@ -1,17 +1,3 @@
-"""
-Stream Simulation CLI — PhysioNet CinC 2019
-============================================
-Entry point to run the full pipeline in simulation mode,
-replaying the PhysioNet/CinC Challenge 2019 dataset as a real-time stream.
-
-Dataset: kaggle.com/datasets/salikhussaini49/prediction-of-sepsis
-
-Usage:
-  python scripts/simulate_stream.py
-  python scripts/simulate_stream.py --n-patients 500 --speed 60
-  python scripts/simulate_stream.py --n-patients 200 --no-realtime
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -70,6 +56,10 @@ def main() -> None:
         "--no-realtime", action="store_true",
         help="Disable real-time throttling (max speed)"
     )
+    parser.add_argument(
+        "--max-events", type=int, default=None,
+        help="Stop after N processed predictions (useful for smoke tests)"
+    )
     parser.add_argument("--cfg", default="config/settings.yaml")
     args = parser.parse_args()
 
@@ -77,15 +67,11 @@ def main() -> None:
     log.info("  Real-Time Patient Deterioration EWS — PhysioNet CinC 2019")
     log.info("=" * 70)
 
-    # Override speed if provided
     if args.speed:
-        import yaml
-        with open(args.cfg) as f:
-            cfg = yaml.safe_load(f)
-        cfg["streaming"]["speed_multiplier"] = args.speed
-        with open(args.cfg, "w") as f:
-            yaml.dump(cfg, f, default_flow_style=False)
-        log.info(f"Speed multiplier set to {args.speed}×")
+        simulator_speed = args.speed
+        log.info(f"Speed multiplier override: {simulator_speed}× (config file not modified)")
+    else:
+        simulator_speed = None
 
     # Initialise pipeline
     log.info("Initialising EWS pipeline …")
@@ -97,6 +83,8 @@ def main() -> None:
 
     # Set up simulator
     simulator = StreamSimulator(args.cfg)
+    if simulator_speed:
+        simulator.speed_multiplier = simulator_speed
     simulator.load_data(n_patients=args.n_patients)
 
     # Feed labels from loaded patient data into pipeline for delayed-label learning
@@ -137,6 +125,10 @@ def main() -> None:
                     print_result(result)
 
                 # Print pipeline status every 1000 events
+                if args.max_events and n_processed >= args.max_events:
+                    log.info(f"Reached --max-events={args.max_events}; stopping.")
+                    break
+
                 if n_processed % 1000 == 0:
                     status = pipeline.status()
                     elapsed = time.time() - start_wall
@@ -146,6 +138,7 @@ def main() -> None:
                     )
                     log.info(f"  Active model: {status['active_model']}")
                     log.info(f"  Online AUROC: {status['online_auroc']:.4f}")
+                    log.info(f"  Online updates: {status.get('n_online_updates', 0)}")
                     log.info(f"  Drift events: {status['total_drift_events']}")
                     log.info(f"  Rollbacks:    {status['rollback_count']}")
                     log.info(f"  Alerts fired: {n_alerts}")

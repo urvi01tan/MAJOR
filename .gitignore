@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+
+# Datasets (Do NOT commit heavy PSV dataset files)
+data/
+*.psv
+*.csv
+
+# Model Artifacts (Commit code, ignore large binary pkl weights)
+models/*.pkl
+models/snapshots/
+
+# Logs & Databases
+logs/
+*.db
+*.log
+
+# Pytest & IDE
+.pytest_cache/
+.vscode/
+.idea/
+.DS_Store

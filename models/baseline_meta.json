@@ -1,0 +1,24 @@
+{
+  "model_type": "logistic_regression",
+  "dataset": "PhysioNet/CinC Challenge 2019",
+  "kaggle_url": "kaggle.com/datasets/salikhussaini49/prediction-of-sepsis",
+  "n_train": 216634,
+  "n_test": 53498,
+  "test_auroc": 0.7803565923827314,
+  "test_auprc": 0.08899814572957833,
+  "test_sensitivity": 0.6504770164787511,
+  "test_specificity": 0.7722227528894833,
+  "test_precision": 0.05918093584786554,
+  "confusion_matrix": {
+    "tn": 40422,
+    "fp": 11923,
+    "fn": 403,
+    "tp": 750
+  },
+  "sepsis_prevalence_train": 0.02121089025730033,
+  "sepsis_prevalence_test": 0.02155220755916109,
+  "trained_at": "2026-09-17T05:15:37.453242",
+  "version": "baseline_v1",
+  "n_patients_train": 16268,
+  "n_patients_test": 4068
+}

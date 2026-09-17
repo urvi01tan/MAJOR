@@ -1,33 +1,17 @@
-"""
-Immutable Audit Logger
-=======================
-Records every prediction, model update, drift event, rollback, and
-clinician feedback to an append-only SQLite database.
-
-Design principles:
-  - Append-only: rows are never updated or deleted
-  - Schema-versioned: migration support for future columns
-  - Exportable: CSV/JSON export for regulatory review
-  - Thread-safe: SQLAlchemy connection pool handles concurrent writes
-
-Tables:
-  predictions    — every prediction made
-  model_updates  — every online model partial_fit update
-  drift_events   — every drift detection event
-  feedback       — clinician true/false alert feedback
-  audit_meta     — system metadata and schema version
-"""
-
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import uuid
+import warnings
 from datetime import datetime
+
 from pathlib import Path
 from typing import Any
 
 import yaml
+
 from sqlalchemy import (
     Column,
     DateTime,
@@ -142,7 +126,8 @@ def _sha256(data: str) -> str:
 
 
 def _prediction_id(patient_id: str, ts: datetime) -> str:
-    return _sha256(f"{patient_id}_{ts.isoformat()}")
+    """Generate a guaranteed-unique prediction ID (UUID4 + patient + ts)."""
+    return _sha256(f"{patient_id}_{ts.isoformat()}_{uuid.uuid4().hex}")
 
 
 def _update_id(n_updates: int, ts: datetime) -> str:
@@ -368,3 +353,41 @@ class AuditLogger:
         ]
         pd.DataFrame(data).to_csv(output_path, index=False)
         log.info(f"[AuditLogger] Exported {len(data)} predictions to {output_path}")
+
+    def recent_feedback(self, n: int = 50) -> list[dict]:
+        with self._Session() as sess:
+            rows = (
+                sess.query(FeedbackRecord)
+                .order_by(FeedbackRecord.timestamp.desc())
+                .limit(n)
+                .all()
+            )
+            return [
+                {
+                    "feedback_id": r.feedback_id,
+                    "prediction_id": r.prediction_id,
+                    "patient_id": r.patient_id,
+                    "feedback": r.feedback,
+                    "clinician_id": r.clinician_id,
+                    "notes": r.notes,
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                }
+                for r in rows
+            ]
+
+    def shift_stats(self) -> dict:
+        with self._Session() as sess:
+            n_pred = sess.query(PredictionRecord).count()
+            n_alerts = sess.query(PredictionRecord).filter(PredictionRecord.alert_fired == 1).count()
+            n_feedback = sess.query(FeedbackRecord).count()
+            tp = sess.query(FeedbackRecord).filter(FeedbackRecord.feedback == "true_positive").count()
+            fp = sess.query(FeedbackRecord).filter(FeedbackRecord.feedback == "false_positive").count()
+        return {
+            "n_predictions": n_pred,
+            "n_alerts": n_alerts,
+            "n_feedback": n_feedback,
+            "true_positives": tp,
+            "false_positives": fp,
+            "alert_rate": (n_alerts / n_pred) if n_pred else 0.0,
+            "ppv": (tp / (tp + fp)) if (tp + fp) else None,
+        }

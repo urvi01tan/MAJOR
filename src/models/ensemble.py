@@ -1,21 +1,3 @@
-"""
-Ensemble / Model Selector
-==========================
-Decides which model's prediction to use at runtime:
-  - Online model (incremental, adapting)
-  - Baseline model (static, validated safety net)
-
-Selector logic:
-  1. Shadow mode: online model predicts but output is not used → always use baseline
-  2. Normal mode:
-     a. Use online model if its rolling AUROC > baseline_auroc − rollback_gap
-     b. Auto-rollback to baseline if online AUROC drops below threshold
-     c. Rollback is logged and an alert is raised to the monitoring dashboard
-  3. Output: dict with prediction, model_used, confidence, flags
-
-Also handles prediction caching (don't re-score same patient within cooldown).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -34,15 +16,8 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
 
 
 class EnsembleSelector:
-    """
-    Selects between online and baseline models based on real-time performance.
-
-    Usage:
-        selector = EnsembleSelector(online_model, baseline_model)
-        result = selector.predict(patient_id, features)
-    """
-
     def __init__(self, online_model, baseline_model, cfg_path: str = "config/settings.yaml"):
+
         self.cfg = _load_cfg(cfg_path)
         self.online = online_model
         self.baseline = baseline_model
@@ -52,50 +27,65 @@ class EnsembleSelector:
         self.cooldown_minutes: int = self.cfg["alerting"]["alert_cooldown_minutes"]
         self.shadow_mode: bool = self.cfg["online_model"]["shadow_mode"]
 
-        # Track which model is currently active
-        self._active_model: str = "online"  # "online" | "baseline"
+        # Ensemble strategy: 'auto_rollback' | 'online_only' | 'baseline_only' | 'weighted_blend'
+        ensemble_cfg = self.cfg.get("ensemble", {})
+        self.strategy: str = ensemble_cfg.get("strategy", "auto_rollback")
+        self.blend_online_weight: float = float(ensemble_cfg.get("blend_online_weight", 0.6))
+        self.blend_baseline_weight: float = float(ensemble_cfg.get("blend_baseline_weight", 0.4))
+
+        # Filhal konsa model active hai
+        self._active_model: str = "online"
         self._rollback_count: int = 0
         self._rollback_events: list[dict] = []
 
-        # Per-patient alert cooldown: patient_id → last_alert_time
+        # Patient alert gap track karne ke liye
         self._last_alert: dict[str, datetime] = {}
 
-        # Rolling AUROC comparison
         self._baseline_auroc: float = baseline_model.auroc
-        log.info(
-            f"[EnsembleSelector] shadow_mode={self.shadow_mode}, "
-            f"baseline_auroc={self._baseline_auroc:.3f}, rollback_gap={self.rollback_gap}"
-        )
 
-    # ------------------------------------------------------------------
     def predict(
         self, patient_id: str, features: dict[str, float], now: datetime | None = None
     ) -> dict[str, Any]:
         """
-        Return a prediction result dict:
-          {
-            patient_id, timestamp, risk_score, model_used, alert,
-            online_score, baseline_score, active_model
-          }
+        Risk score predict karta hai.
         """
         now = now or datetime.utcnow()
 
-        # Always compute both for monitoring
+        # Dono models se score nikalo
         online_score = self.online.predict(features)
         baseline_score = self.baseline.predict(features)
 
-        # Determine which score to use
+        # Safety switch check karo
         self._maybe_rollback(now)
 
-        if self.shadow_mode or self._active_model == "baseline":
+        if self.shadow_mode:
             used_score = baseline_score
             model_used = "baseline"
-        else:
+        elif self.strategy == "online_only":
+            used_score = online_score
+            model_used = "online"
+        elif self.strategy == "baseline_only" or self._active_model == "baseline":
+            used_score = baseline_score
+            model_used = "baseline"
+        elif self.strategy == "weighted_blend":
+            used_score = (
+                self.blend_online_weight * online_score
+                + self.blend_baseline_weight * baseline_score
+            )
+            model_used = "blend"
+        else:  # auto_rollback (default)
             used_score = online_score
             model_used = "online"
 
-        # Alert decision (with cooldown)
         alert = self._should_alert(patient_id, used_score, now)
+        if used_score >= 0.80:
+            severity = "critical"
+        elif used_score >= self.alert_threshold:
+            severity = "high"
+        elif used_score >= self.alert_threshold * 0.7:
+            severity = "watch"
+        else:
+            severity = "stable"
 
         result = {
             "patient_id": patient_id,
@@ -105,6 +95,7 @@ class EnsembleSelector:
             "active_model": self._active_model,
             "shadow_mode": self.shadow_mode,
             "alert": alert,
+            "severity": severity,
             "alert_threshold": self.alert_threshold,
             "online_score": round(online_score, 4),
             "baseline_score": round(baseline_score, 4),
@@ -169,6 +160,9 @@ class EnsembleSelector:
         """Manually restore online model."""
         self._active_model = "online"
         log.info("[EnsembleSelector] Online model manually restored.")
+
+    def set_alert_threshold(self, threshold: float) -> None:
+        self.alert_threshold = float(min(0.99, max(0.05, threshold)))
 
     # ------------------------------------------------------------------
     @property

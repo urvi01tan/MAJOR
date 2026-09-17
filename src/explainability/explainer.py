@@ -1,32 +1,3 @@
-"""
-Per-Prediction Explainability
-==============================
-Generates clinician-readable explanations for each risk prediction.
-
-Strategies by model type:
-  1. Logistic Regression (online or baseline):
-     contribution_i = weight_i × feature_value_i
-     Signed contributions show direction and magnitude.
-
-  2. Hoeffding Adaptive Tree:
-     Extracts the decision path taken by the current feature vector
-     and reports the key splitting conditions.
-
-  3. Baseline XGBoost (if used):
-     Uses SHAP TreeExplainer (or approximate feature importance × value).
-
-Output format per prediction:
-  {
-    "top_features": [
-      {"feature": "heart_rate__w60_mean", "value": 118.5, "contribution": 0.24,
-       "direction": "increases_risk", "plain_english": "HR trending up (118 bpm avg over 1hr)"},
-      ...
-    ],
-    "summary": "High risk driven primarily by elevated heart rate and low blood pressure.",
-    "model_type": "online_logistic_regression"
-  }
-"""
-
 from __future__ import annotations
 
 import math
@@ -35,9 +6,11 @@ from typing import Any
 import yaml
 
 
+
 def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
     with open(cfg_path) as f:
         return yaml.safe_load(f)
+
 
 
 # ---------------------------------------------------------------------------
@@ -48,22 +21,34 @@ _PLAIN_ENGLISH: dict[str, str] = {
     "heart_rate__w15_mean": "HR avg last 15 min: {value:.0f} bpm",
     "heart_rate__w60_mean": "HR avg last 1 hr: {value:.0f} bpm",
     "heart_rate__w60_slope": "HR trend last 1 hr: {value:+.1f} bpm/min",
+    "HR__w60_mean": "HR avg last 1 hr: {value:.0f} bpm",
+    "HR__w60_slope": "HR trend last 1 hr: {value:+.2f} bpm/min",
     "sbp__w60_mean": "Systolic BP avg last 1 hr: {value:.0f} mmHg",
     "sbp__w60_slope": "Systolic BP trend: {value:+.1f} mmHg/min",
+    "SBP__w60_mean": "Systolic BP avg last 1 hr: {value:.0f} mmHg",
+    "SBP__w60_slope": "Systolic BP trend: {value:+.2f} mmHg/min",
     "map__w60_mean": "MAP avg last 1 hr: {value:.0f} mmHg",
+    "MAP__w60_mean": "MAP avg last 1 hr: {value:.0f} mmHg",
     "resp_rate__w15_mean": "Respiratory rate avg last 15 min: {value:.0f} breaths/min",
     "resp_rate__w60_mean": "Respiratory rate avg last 1 hr: {value:.0f} breaths/min",
+    "Resp__w60_mean": "Respiratory rate avg last 1 hr: {value:.0f} breaths/min",
     "spo2__w15_mean": "SpO₂ avg last 15 min: {value:.1f}%",
     "spo2__w60_mean": "SpO₂ avg last 1 hr: {value:.1f}%",
+    "O2Sat__w60_mean": "SpO₂ avg last 1 hr: {value:.1f}%",
     "temperature__w60_mean": "Temperature avg last 1 hr: {value:.1f}°C",
+    "Temp__w60_mean": "Temperature avg last 1 hr: {value:.1f}°C",
     "gcs_total__w60_mean": "GCS avg last 1 hr: {value:.0f}",
     "urine_output__w240_mean": "Urine output avg last 4 hr: {value:.0f} mL",
     "lactate__w240_mean": "Lactate last 4 hr: {value:.1f} mmol/L",
+    "Lactate__w240_mean": "Lactate last 4 hr: {value:.1f} mmol/L",
     "wbc__w240_mean": "WBC last 4 hr: {value:.0f} ×10³/µL",
+    "WBC__w240_mean": "WBC last 4 hr: {value:.0f} ×10³/µL",
     "creatinine__w240_mean": "Creatinine last 4 hr: {value:.2f} mg/dL",
+    "Creatinine__w240_mean": "Creatinine last 4 hr: {value:.2f} mg/dL",
     "shock_index_60": "Shock index (HR/SBP) last 1 hr: {value:.2f}",
     "pulse_pressure_60": "Pulse pressure last 1 hr: {value:.0f} mmHg",
     "pf_ratio_proxy": "P/F ratio proxy: {value:.0f}",
+    "lactate_rising": "Lactate rising flag: {value:.0f}",
 }
 
 _RISK_DIRECTION: dict[str, str] = {

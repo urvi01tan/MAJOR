@@ -1,24 +1,3 @@
-"""
-Sliding-Window Feature Aggregator — PhysioNet CinC 2019
-========================================================
-Maintains per-patient sliding windows of vital/lab observations
-and computes statistical aggregates used as ML features.
-
-Dataset: PhysioNet/CinC Challenge 2019 — Early Prediction of Sepsis
-Features: 8 vitals + 26 labs + 6 demographics (40 columns total)
-
-For each configured window size (e.g., 60-min, 240-min, 480-min) and
-each clinical feature, we compute:
-  - mean, std, min, max
-  - trend slope (linear regression over the window)
-  - count (number of observations in window)
-  - time since last observation (staleness)
-  - missing indicator (boolean)
-
-The feature vector is returned as a flat dict suitable for River's
-online learners.
-"""
-
 from __future__ import annotations
 
 import math
@@ -35,16 +14,7 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------------
-# Per-patient window buffer
-# ---------------------------------------------------------------------------
-
 class _WindowBuffer:
-    """
-    Circular buffer of (timestamp, value) pairs for one patient + feature.
-    Maintains multiple window sizes simultaneously.
-    """
-
     def __init__(self, max_window_minutes: int):
         self._max_window = timedelta(minutes=max_window_minutes)
         self._data: deque[tuple[datetime, float]] = deque()
@@ -334,3 +304,15 @@ class WindowAggregator:
 
     def patient_count(self) -> int:
         return len(self._buffers)
+
+    def latest_vitals(self, patient_id: str) -> dict[str, float]:
+        """Most recent raw observation per feature for a patient."""
+        out: dict[str, float] = {}
+        buffers = self._buffers.get(patient_id, {})
+        for feature, buf in buffers.items():
+            if buf._data:
+                out[feature] = buf._data[-1][1]
+        return out
+
+    def tracked_patient_ids(self) -> list[str]:
+        return list(self._buffers.keys())

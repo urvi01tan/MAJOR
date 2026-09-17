@@ -1,29 +1,3 @@
-"""
-Stream Simulator — PhysioNet/CinC Challenge 2019
-=================================================
-Replays the PhysioNet Computing in Cardiology Challenge 2019
-"Early Prediction of Sepsis from Clinical Data" dataset as a
-time-ordered stream of patient events, simulating real-time
-bedside monitor and EHR ingestion.
-
-Dataset:
-  Kaggle: kaggle.com/datasets/salikhussaini49/prediction-of-sepsis
-  Each patient has a PSV file (pipe-separated). Each row = 1 hour.
-  Columns: 8 vitals + 26 labs + 6 demographics + SepsisLabel
-
-Each emitted event is a dict:
-  {
-    "patient_id":   str,       # e.g. "p000001"
-    "timestamp":    datetime,  # synthetic (ICU admit + ICULOS hours)
-    "source":       "vital" | "lab" | "demographic",
-    "feature_name": str,       # e.g. "HR", "Lactate", "Age"
-    "value":        float,
-    "unit":         str,
-    "sepsis_label": int,       # 0 or 1 (from SepsisLabel column)
-    "iculos":       int,       # ICU hour index for this row
-  }
-"""
-
 from __future__ import annotations
 
 import time
@@ -40,10 +14,6 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
     with open(cfg_path) as f:
         return yaml.safe_load(f)
 
-
-# ---------------------------------------------------------------------------
-# Column classification
-# ---------------------------------------------------------------------------
 
 VITAL_COLS = [
     "HR", "O2Sat", "Temp", "SBP", "MAP", "DBP", "Resp", "EtCO2",
@@ -63,28 +33,15 @@ DEMOGRAPHIC_COLS = [
 
 ALL_FEATURE_COLS = VITAL_COLS + LAB_COLS + DEMOGRAPHIC_COLS
 
-# Source tag per column
 _COL_SOURCE: dict[str, str] = {
     **{c: "vital" for c in VITAL_COLS},
     **{c: "lab" for c in LAB_COLS},
     **{c: "demographic" for c in DEMOGRAPHIC_COLS},
 }
-
-# Synthetic ICU admit base time (same for all patients — only relative offsets matter)
 _ICU_ADMIT_BASE = datetime(2024, 1, 1, 0, 0, 0)
 
 
-# ---------------------------------------------------------------------------
-# PSV loader
-# ---------------------------------------------------------------------------
-
 class PhysioNetDataLoader:
-    """
-    Loads PhysioNet CinC 2019 PSV files from the training directory.
-
-    Each file: p<XXXXXX>.psv, pipe-separated, 40 columns + SepsisLabel.
-    """
-
     def __init__(self, training_dir: str | Path):
         self.training_dir = Path(training_dir)
         if not self.training_dir.exists():

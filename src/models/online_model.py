@@ -1,18 +1,3 @@
-"""
-Online Incremental Model
-========================
-Wraps River library online learners with:
-  - Partial-fit interface (update per event / mini-batch)
-  - Delayed-label queue (outcome not known until 6 hrs later)
-  - Model state serialisation (for registry snapshots)
-  - Configurable model type: Hoeffding Adaptive Tree or Logistic Regression
-
-Supported models:
-  - HoeffdingAdaptiveTreeClassifier: naturally handles concept drift,
-    more expressive, still interpretable via decision paths.
-  - LogisticRegression: simplest, most interpretable, easiest to validate.
-"""
-
 from __future__ import annotations
 
 import json
@@ -25,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
 
 log = logging.getLogger(__name__)
 
@@ -52,12 +38,19 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
 # ---------------------------------------------------------------------------
 
 class _DelayedEntry:
-    __slots__ = ("features", "enqueued_at", "label")
+    __slots__ = ("features", "enqueued_at", "label", "patient_id")
 
-    def __init__(self, features: dict, enqueued_at: datetime):
+    def __init__(
+        self,
+        features: dict,
+        enqueued_at: datetime,
+        patient_id: str | None = None,
+        label: int | None = None,
+    ):
         self.features = features
         self.enqueued_at = enqueued_at
-        self.label: int | None = None  # filled when outcome is confirmed
+        self.patient_id = patient_id
+        self.label = label
 
 
 # ---------------------------------------------------------------------------
@@ -132,10 +125,21 @@ class OnlineModel:
 
     # ------------------------------------------------------------------
     def enqueue_for_update(
-        self, features: dict[str, float], event_time: datetime
+        self,
+        features: dict[str, float],
+        event_time: datetime,
+        patient_id: str | None = None,
+        eventual_label: int | None = None,
     ) -> None:
-        """Queue a feature sample; will be used for learning once label arrives."""
-        entry = _DelayedEntry(features=features, enqueued_at=event_time)
+        """Queue a feature sample; trained after the prediction window elapses."""
+        if eventual_label is None and patient_id and patient_id in self._confirmed_labels:
+            eventual_label = self._confirmed_labels[patient_id][0]
+        entry = _DelayedEntry(
+            features=features,
+            enqueued_at=event_time,
+            patient_id=patient_id,
+            label=eventual_label,
+        )
         self._label_queue.append(entry)
         self._drain_queue(event_time)
 
@@ -162,8 +166,12 @@ class OnlineModel:
                 break  # rest of queue is even newer
             self._label_queue.popleft()
 
+            if entry.label is None and entry.patient_id:
+                stored = self._confirmed_labels.get(entry.patient_id)
+                if stored:
+                    entry.label = stored[0]
             if entry.label is None:
-                continue  # no label available → skip (conservative)
+                continue
 
             clean = {
                 k: (v if not math.isnan(v) else 0.0)

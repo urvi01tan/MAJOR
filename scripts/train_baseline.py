@@ -1,26 +1,3 @@
-"""
-Offline Baseline Model Training — PhysioNet CinC 2019
-======================================================
-Trains a scikit-learn Pipeline (StandardScaler + LogisticRegression)
-on the PhysioNet/CinC Challenge 2019 dataset as the validated static
-safety baseline.
-
-Dataset: kaggle.com/datasets/salikhussaini49/prediction-of-sepsis
-  - ~40,000 patients, one PSV file per patient
-  - Each row = 1 hour of ICU data
-  - SepsisLabel column = 0 or 1 (label is inline — no separate derivation)
-
-Steps:
-  1. Load PSV files from data/physionet2019/training/
-  2. Build feature matrix using WindowAggregator (retrospective replay)
-  3. Labels come directly from SepsisLabel column
-  4. Train / evaluate on 80/20 patient split
-  5. Save model + metadata to models/baseline_model.pkl
-
-Usage:
-  python scripts/train_baseline.py
-  python scripts/train_baseline.py --n-patients 2000 --model xgboost
-"""
 
 from __future__ import annotations
 
@@ -35,8 +12,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import yaml
+from sklearn.metrics import ConfusionMatrixDisplay, confusion_matrix
 
-# --- ensure src is importable ---
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.features.missing_handler import MissingDataHandler
@@ -52,101 +29,131 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------------
-# Feature matrix builder
-# ---------------------------------------------------------------------------
+VITAL_COLS  = ["HR","O2Sat","Temp","SBP","MAP","DBP","Resp","EtCO2"]
+LAB_COLS    = ["BaseExcess","HCO3","FiO2","pH","PaCO2","SaO2","AST","BUN",
+               "Alkalinephos","Calcium","Chloride","Creatinine","Bilirubin_direct",
+               "Glucose","Lactate","Magnesium","Phosphate","Potassium",
+               "Bilirubin_total","TroponinI","Hct","Hgb","PTT","WBC",
+               "Fibrinogen","Platelets"]
+DEMO_COLS   = ["Age","Gender","Unit1","Unit2","HospAdmTime","ICULOS"]
+ALL_COLS    = VITAL_COLS + LAB_COLS + DEMO_COLS
+
+# Rolling window sizes in hours (each row = 1 hour in the PSV files)
+WINDOWS_H   = [1, 4, 8]
+
+
+def _fast_features_for_patient(pid: str, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series]:
+    """
+    Build a feature matrix for a single patient using pandas rolling windows.
+    Much faster than the event-by-event streaming approach (~100x speedup).
+
+    For each clinical column and each window size we compute:
+      mean, std, min, max, last (most recent non-NaN value), slope proxy (last - first in window)
+    Plus: missing indicator, staleness (hours since last obs), and derived features.
+    """
+    # Keep only columns that exist in this file
+    cols = [c for c in ALL_COLS if c in df.columns]
+    data = df[cols].copy()
+
+    feature_frames: list[pd.DataFrame] = []
+
+    for col in cols:
+        s = data[col].copy()
+        for w in WINDOWS_H:
+            roll = s.rolling(window=w, min_periods=1)
+            feat_prefix = f"{col}__w{w*60}"
+            # Slope: use vectorised diff over window (fast, no Python callbacks)
+            slope_approx = s.diff(w).fillna(s.diff(1)).fillna(0.0) / max(w, 1)
+            wdf = pd.DataFrame({
+                f"{feat_prefix}_mean":  roll.mean(),
+                f"{feat_prefix}_std":   roll.std().fillna(0.0),
+                f"{feat_prefix}_min":   roll.min(),
+                f"{feat_prefix}_max":   roll.max(),
+                f"{feat_prefix}_count": roll.count(),
+                f"{feat_prefix}_slope": slope_approx,
+            })
+            feature_frames.append(wdf)
+
+        # Missing indicator and staleness
+        obs_mask = s.notna()
+        feature_frames.append(pd.DataFrame({
+            f"{col}__missing": (~obs_mask).astype(float),
+            f"{col}__staleness_h": s.isna().astype(int).groupby(
+                obs_mask.cumsum()
+            ).cumsum().astype(float),
+        }))
+
+    X = pd.concat(feature_frames, axis=1).copy()  # defragment before adding derived cols
+
+    # ── Derived features ──────────────────────────────────────────────────
+    hr  = X.get("HR__w60_mean",  pd.Series(float("nan"), index=X.index))
+    sbp = X.get("SBP__w60_mean", pd.Series(float("nan"), index=X.index))
+    dbp = X.get("DBP__w60_mean", pd.Series(float("nan"), index=X.index))
+    spo2= X.get("O2Sat__w60_mean", pd.Series(float("nan"), index=X.index))
+    fio2= X.get("FiO2__w60_mean",  pd.Series(float("nan"), index=X.index))
+    lac = X.get("Lactate__w240_slope", pd.Series(float("nan"), index=X.index))
+
+    X["shock_index_60"]    = hr / sbp.replace(0, float("nan"))
+    X["pulse_pressure_60"] = sbp - dbp
+    X["pf_ratio_proxy"]    = spo2 / (fio2 / 100.0).replace(0, float("nan"))
+    X["lactate_rising"]    = (lac > 0).astype(float)
+
+    y = df["SepsisLabel"].fillna(0).astype(int) if "SepsisLabel" in df.columns \
+        else pd.Series(0, index=df.index)
+
+    return X, y
+
 
 def build_feature_matrix(
     patients: list[tuple[str, pd.DataFrame]],
     sample_every_n_hours: int = 3,
 ) -> tuple[pd.DataFrame, pd.Series]:
     """
-    Build (X, y) from patient DataFrames.
-
-    For each patient, we take a snapshot of the rolling feature vector
-    every `sample_every_n_hours` hours to avoid class imbalance from
-    the majority of non-sepsis hours.
-
-    Args:
-        patients: list of (patient_id, hourly_dataframe) tuples
-        sample_every_n_hours: subsample rate to keep feature matrix manageable
-
-    Returns:
-        X: feature DataFrame
-        y: sepsis label Series
+    Build train/test feature matrix using fast pandas rolling windows.
+    Samples every `sample_every_n_hours` rows per patient.
     """
-    aggregator = WindowAggregator()
-    imputer = MissingDataHandler()
+    from tqdm import tqdm
 
-    feature_rows: list[dict] = []
-    labels: list[int] = []
+    all_X: list[pd.DataFrame] = []
+    all_y: list[pd.Series]    = []
 
-    for patient_id, df in patients:
-        # Build a mini stream for this patient and aggregate features
-        for hour_index, (_, row) in enumerate(df.iterrows()):
-            sepsis_label = int(row.get("SepsisLabel", 0))
+    for patient_id, df in tqdm(patients, desc="  Building features", unit="pt", ncols=80):
+        try:
+            X_p, y_p = _fast_features_for_patient(patient_id, df)
+            # Sample every N rows
+            idx = list(range(0, len(X_p), sample_every_n_hours))
+            all_X.append(X_p.iloc[idx])
+            all_y.append(y_p.iloc[idx])
+        except Exception as exc:
+            log.warning(f"  [skip] {patient_id}: {exc}")
 
-            # Emit each non-NaN feature column as an event
-            from src.ingestion.stream_simulator import (
-                ALL_FEATURE_COLS, _ICU_ADMIT_BASE, _COL_SOURCE
-            )
-            from datetime import timedelta
+    if not all_X:
+        raise RuntimeError("No feature rows generated. Check PSV files.")
 
-            ts = _ICU_ADMIT_BASE + timedelta(hours=hour_index)
-            for col in ALL_FEATURE_COLS:
-                if col not in row.index:
-                    continue
-                val = row[col]
-                if pd.isna(val):
-                    continue
-                event = {
-                    "patient_id": patient_id,
-                    "timestamp": ts,
-                    "source": _COL_SOURCE.get(col, "unknown"),
-                    "feature_name": col,
-                    "value": float(val),
-                    "unit": "",
-                    "sepsis_label": sepsis_label,
-                    "iculos": hour_index,
-                }
-                aggregator.update(event)
+    X = pd.concat(all_X, ignore_index=True).fillna(0.0)
+    y = pd.concat(all_y, ignore_index=True)
 
-            # Subsample: snapshot every N hours
-            if hour_index % sample_every_n_hours == 0:
-                fv_raw = aggregator.get_feature_vector(patient_id, ts)
-                if fv_raw:
-                    fv = imputer.impute_and_update(fv_raw)
-                    feature_rows.append(fv)
-                    labels.append(sepsis_label)
-
-    if not feature_rows:
-        raise RuntimeError(
-            "No feature rows generated. Check PSV files in data/physionet2019/training/"
-        )
-
-    X = pd.DataFrame(feature_rows).fillna(0.0)
-    y = pd.Series(labels, name="sepsis_label")
     log.info(
-        f"Feature matrix: {X.shape[0]:,} rows × {X.shape[1]} features, "
-        f"sepsis prevalence: {y.mean():.1%}"
+        f"Feature matrix: {X.shape[0]:,} rows × {X.shape[1]} features | "
+        f"Sepsis prevalence: {y.mean():.1%}"
     )
     return X, y
 
 
-# ---------------------------------------------------------------------------
-# Model training
-# ---------------------------------------------------------------------------
 
-def train_model(X: pd.DataFrame, y: pd.Series, model_type: str = "logistic_regression"):
+
+def train_model(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    model_type: str = "logistic_regression",
+):
     from sklearn.linear_model import LogisticRegression
-    from sklearn.metrics import roc_auc_score, classification_report
-    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import roc_auc_score, classification_report, average_precision_score
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import StandardScaler
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
     log.info(f"Train: {len(X_train):,}, Test: {len(X_test):,}")
 
     if model_type == "xgboost":
@@ -169,7 +176,7 @@ def train_model(X: pd.DataFrame, y: pd.Series, model_type: str = "logistic_regre
         model = Pipeline([("scaler", StandardScaler()), ("clf", clf)])
         model.fit(X_train, y_train)
 
-    else:  # logistic_regression (default)
+    else:  
         model = Pipeline([
             ("scaler", StandardScaler()),
             ("clf", LogisticRegression(
@@ -183,38 +190,54 @@ def train_model(X: pd.DataFrame, y: pd.Series, model_type: str = "logistic_regre
         ])
         model.fit(X_train, y_train)
 
-    # Evaluation
     y_proba = model.predict_proba(X_test)[:, 1]
     y_pred = (y_proba >= 0.5).astype(int)
     auroc = roc_auc_score(y_test, y_proba)
+    try:
+        auprc = average_precision_score(y_test, y_proba)
+    except Exception:
+        auprc = float("nan")
     report = classification_report(y_test, y_pred, output_dict=True)
 
     sensitivity = report.get("1", {}).get("recall", float("nan"))
     specificity = report.get("0", {}).get("recall", float("nan"))
+    precision = report.get("1", {}).get("precision", float("nan"))
 
     log.info(f"Test AUROC:    {auroc:.4f}")
+    log.info(f"Test AUPRC:    {auprc:.4f}")
     log.info(f"Sensitivity:   {sensitivity:.3f}")
     log.info(f"Specificity:   {specificity:.3f}")
+    log.info(f"Precision:     {precision:.3f}")
     log.info("\n" + classification_report(y_test, y_pred))
+
+    # ── Confusion matrix ───────────────────────────────────────────────
+    cm = confusion_matrix(y_test, y_pred)
+    tn, fp_count, fn_count, tp_count = cm.ravel()
+    log.info("Confusion Matrix:")
+    log.info(f"  TN={tn:,}  FP={fp_count:,}")
+    log.info(f"  FN={fn_count:,}  TP={tp_count:,}")
+    log.info(f"  PPV (precision): {tp_count/(tp_count+fp_count):.3f}" if (tp_count+fp_count) > 0 else "  PPV: N/A")
+    log.info(f"  NPV: {tn/(tn+fn_count):.3f}" if (tn+fn_count) > 0 else "  NPV: N/A")
 
     meta = {
         "model_type": model_type,
         "dataset": "PhysioNet/CinC Challenge 2019",
         "kaggle_url": "kaggle.com/datasets/salikhussaini49/prediction-of-sepsis",
-        "n_train": len(X_train),
-        "n_test": len(X_test),
-        "test_auroc": auroc,
-        "test_sensitivity": sensitivity,
-        "test_specificity": specificity,
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+        "test_auroc": float(auroc),
+        "test_auprc": float(auprc) if auprc == auprc else None,
+        "test_sensitivity": float(sensitivity) if sensitivity == sensitivity else None,
+        "test_specificity": float(specificity) if specificity == specificity else None,
+        "test_precision": float(precision) if precision == precision else None,
+        "confusion_matrix": {"tn": int(tn), "fp": int(fp_count), "fn": int(fn_count), "tp": int(tp_count)},
+        "sepsis_prevalence_train": float(y_train.mean()),
+        "sepsis_prevalence_test": float(y_test.mean()),
         "trained_at": datetime.utcnow().isoformat(),
         "version": "baseline_v1",
     }
     return model, meta
 
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -241,14 +264,10 @@ def main() -> None:
     log.info("=" * 60)
     log.info("PhysioNet CinC 2019 — Baseline Model Training")
     log.info("=" * 60)
-
-    # Load patient data
     log.info(f"Loading PSV files from {training_dir} …")
     loader = PhysioNetDataLoader(training_dir)
     patients = loader.load_all(n_patients=args.n_patients)
     log.info(f"Loaded {len(patients):,} patients.")
-
-    # Split patients (not rows) for train/test to avoid data leakage
     rng = np.random.default_rng(42)
     indices = rng.permutation(len(patients))
     split = int(0.8 * len(patients))
@@ -265,16 +284,15 @@ def main() -> None:
         test_patients, sample_every_n_hours=args.sample_every
     )
 
-    # Align columns
     all_cols = list(X_train_full.columns)
     X_test_full = X_test_full.reindex(columns=all_cols, fill_value=0.0)
 
-    X = pd.concat([X_train_full, X_test_full], ignore_index=True)
-    y = pd.concat([y_train_full, y_test_full], ignore_index=True)
-
-    # Train
-    log.info(f"Training {args.model} …")
-    model, meta = train_model(X, y, model_type=args.model)
+    log.info(f"Training {args.model} on patient-level split (no leakage) …")
+    model, meta = train_model(
+        X_train_full, y_train_full, X_test_full, y_test_full, model_type=args.model
+    )
+    meta["n_patients_train"] = len(train_patients)
+    meta["n_patients_test"] = len(test_patients)
 
     # Save
     out_path = Path(cfg["paths"]["baseline_model"])
@@ -293,6 +311,27 @@ def main() -> None:
     with open(meta_path, "w") as f:
         json.dump(meta, f, indent=2)
     log.info(f"Metadata saved → {meta_path}")
+
+    # ── Feature importance JSON ────────────────────────────────────────
+    fi_path_str = cfg.get("paths", {}).get("feature_importance", "models/feature_importance.json")
+    fi_path = Path(fi_path_str)
+    try:
+        inner = model
+        if hasattr(inner, "steps"):
+            inner = inner.steps[-1][1]
+        if hasattr(inner, "coef_"):
+            fi = {f: float(c) for f, c in zip(all_cols, inner.coef_[0])}
+        elif hasattr(inner, "feature_importances_"):
+            fi = {f: float(v) for f, v in zip(all_cols, inner.feature_importances_)}
+        else:
+            fi = {}
+        if fi:
+            with open(fi_path, "w") as f:
+                json.dump(fi, f, indent=2)
+            log.info(f"Feature importances saved → {fi_path} ({len(fi)} features)")
+    except Exception as exc:
+        log.warning(f"Could not save feature importances: {exc}")
+
     log.info("✅  Training complete!")
 
 

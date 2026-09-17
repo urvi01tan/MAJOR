@@ -1,28 +1,3 @@
-"""
-Concept Drift Detector
-======================
-Monitors multiple signals for distributional shift in the patient data stream.
-
-Three complementary detectors run in parallel:
-
-1. ADWIN (Adaptive Windowing) — tracks feature distribution drift
-   - Monitors the mean of prediction probabilities over an adaptive window
-   - Detects when the distribution of incoming data changes significantly
-
-2. DDM (Drift Detection Method) — tracks model error rate
-   - Uses Gaussian control charts on binary prediction errors
-   - Raises "warning" before raising "drift" alert
-
-3. Page-Hinkley Test — detects abrupt mean shifts
-   - Sensitive to sudden spikes in prediction scores
-   - Good for catching sensor recalibrations or ICU population shifts
-
-On drift detected:
-  - Logs the drift event to audit trail
-  - Raises a flag visible on the monitoring dashboard
-  - Optionally triggers model snapshot before/after
-"""
-
 from __future__ import annotations
 
 import logging
@@ -33,6 +8,7 @@ from typing import Any
 
 import yaml
 
+
 log = logging.getLogger(__name__)
 
 try:
@@ -42,7 +18,7 @@ try:
 except ImportError:
     RIVER_AVAILABLE = False
     RiverDDM = None
-    log.error("River drift module not available. pip install river")
+    log.error("River library nahi mili.")
 
 
 def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
@@ -50,14 +26,11 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------------
-# Drift event
-# ---------------------------------------------------------------------------
-
 class DriftEvent:
     __slots__ = ["detector", "timestamp", "metric_value", "severity", "details"]
 
     def __init__(
+
         self,
         detector: str,
         timestamp: datetime,

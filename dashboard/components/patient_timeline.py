@@ -24,6 +24,14 @@ def render_patient_timeline(recent_results: list[dict], selected_patient: str | 
         selected_patient = patient_ids[0]
 
     chosen = st.selectbox("Select patient", patient_ids, index=patient_ids.index(selected_patient))
+    latest = next((r for r in reversed(recent_results) if r.get("patient_id") == chosen), None)
+    if latest:
+        m1, m2, m3, m4, m5 = st.columns(5)
+        m1.metric("ML risk", f"{latest.get('risk_score', 0):.1%}")
+        m2.metric("NEWS2", latest.get("news2", "—"))
+        m3.metric("qSOFA", latest.get("qsofa", "—"))
+        m4.metric("SIRS", latest.get("sirs", "—"))
+        m5.metric("Severity", str(latest.get("severity", "—")).title())
     patient_results = [r for r in recent_results if r["patient_id"] == chosen]
 
     if not patient_results:
@@ -70,13 +78,21 @@ def render_patient_timeline(recent_results: list[dict], selected_patient: str | 
         opacity=0.6,
     ))
 
-    # Active (selected) risk score
     fig.add_trace(go.Scatter(
         x=timestamps, y=risk_scores,
         mode="lines", name="Active Risk Score",
         line=dict(color="#F77F00", width=2.5),
         fill="tozeroy", fillcolor="rgba(247,127,0,0.05)",
     ))
+    news2_scores = [r.get("news2") for r in patient_results]
+    if any(v is not None for v in news2_scores):
+        fig.add_trace(go.Scatter(
+            x=timestamps,
+            y=[(v / 20.0) if v is not None else None for v in news2_scores],
+            mode="lines",
+            name="NEWS2 / 20 (scaled)",
+            line=dict(color="#9B5DE5", width=1.5),
+        ))
 
     # Alert markers
     if alert_times:

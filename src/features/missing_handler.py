@@ -1,24 +1,3 @@
-"""
-Missing Data Handler — PhysioNet CinC 2019
-==========================================
-Handles missing values in the feature vector before passing to the model.
-
-Clinical data is inherently sparse — vitals may not be charted for hours,
-labs arrive intermittently. This module applies a multi-strategy imputation
-pipeline appropriate for online (streaming) settings where we cannot do
-full-dataset imputation.
-
-Strategies (applied in order):
-  1. Forward-fill: use last known value if within staleness threshold
-     (already handled by WindowAggregator via __missing flags)
-  2. Population median imputation: maintain an online running median
-     per feature, updated after every observation
-  3. Fixed clinical defaults: a conservative physiological prior
-     (used only when no population stats exist yet)
-  4. Missing indicator features: boolean flags are preserved as-is
-     (they're informative — labs being missing is itself a signal)
-"""
-
 from __future__ import annotations
 
 import math
@@ -33,13 +12,7 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
         return yaml.safe_load(f)
 
 
-# ---------------------------------------------------------------------------
-# Conservative clinical defaults for PhysioNet CinC 2019 features
-# Used when an online running median hasn't accumulated yet
-# ---------------------------------------------------------------------------
-
 CLINICAL_DEFAULTS: dict[str, float] = {
-    # Vitals
     "HR":               80.0,
     "O2Sat":            97.0,
     "Temp":             37.0,

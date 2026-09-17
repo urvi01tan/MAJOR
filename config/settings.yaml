@@ -1,116 +1,119 @@
-# ============================================================
-# Real-Time Patient Deterioration Early Warning System
-# Central Configuration
-# Dataset: PhysioNet/CinC Challenge 2019 — Early Prediction of Sepsis
-# Kaggle: kaggle.com/datasets/salikhussaini49/prediction-of-sepsis
-# ============================================================
-
-# ── Clinical outcome ─────────────────────────────────────────
 outcome:
-  label: "sepsis"                  # sepsis — binary SepsisLabel column
-  prediction_window_hours: 6       # hours ahead we predict
-  sofa_threshold: 2                # kept for documentation; label is pre-computed
+  label: "sepsis"
+  prediction_window_hours: 6
+  sofa_threshold: 2
 
-# ── Alerting ─────────────────────────────────────────────────
 alerting:
-  risk_threshold: 0.65             # risk score above this → alert
-  alert_cooldown_minutes: 30       # min time between alerts for same patient
+  risk_threshold: 0.65
+  alert_cooldown_minutes: 30
 
-# ── Feature windows ──────────────────────────────────────────
-# Dataset is hourly, so windows are expressed in hours (converted to minutes internally)
 features:
-  window_sizes_minutes: [60, 240, 480]   # 1-hr, 4-hr, 8-hr windows
-  staleness_threshold_minutes: 120       # vitals older than this treated as missing
+  window_sizes_minutes: [60, 240, 480]
+  staleness_threshold_minutes: 120
 
-  # PhysioNet CinC 2019 column names — used directly (no item-ID mapping needed)
   vital_features:
-    - HR          # Heart rate (bpm)
-    - O2Sat       # Pulse oximetry (%)
-    - Temp        # Temperature (°C)
-    - SBP         # Systolic blood pressure (mmHg)
-    - MAP         # Mean arterial pressure (mmHg)
-    - DBP         # Diastolic blood pressure (mmHg)
-    - Resp        # Respiration rate (breaths/min)
-    - EtCO2       # End-tidal carbon dioxide (mmHg)
+    - HR
+    - O2Sat
+    - Temp
+    - SBP
+    - MAP
+    - DBP
+    - Resp
+    - EtCO2
 
   lab_features:
-    - BaseExcess      # Base excess (mmol/L)
-    - HCO3            # Bicarbonate (mmol/L)
-    - FiO2            # Fraction of inspired oxygen (%)
-    - pH              # Arterial pH
-    - PaCO2           # Partial pressure CO2 (mmHg)
-    - SaO2            # Oxygen saturation (%)
-    - AST             # Aspartate aminotransferase (IU/L)
-    - BUN             # Blood urea nitrogen (mg/dL)
-    - Alkalinephos    # Alkaline phosphatase (IU/L)
-    - Calcium         # Calcium (mg/dL)
-    - Chloride        # Chloride (mmol/L)
-    - Creatinine      # Creatinine (mg/dL)
-    - Bilirubin_direct  # Direct bilirubin (mg/dL)
-    - Glucose         # Blood glucose (mg/dL)
-    - Lactate         # Lactate (mmol/L)
-    - Magnesium       # Magnesium (mmol/L)
-    - Phosphate       # Phosphate (mg/dL)
-    - Potassium       # Potassium (mmol/L)
-    - Bilirubin_total # Total bilirubin (mg/dL)
-    - TroponinI       # Troponin-I (ng/mL)
-    - Hct             # Hematocrit (%)
-    - Hgb             # Hemoglobin (g/dL)
-    - PTT             # Partial thromboplastin time (s)
-    - WBC             # White blood cell count (10^9/L)
-    - Fibrinogen      # Fibrinogen (mg/dL)
-    - Platelets       # Platelets (10^9/L)
+    - BaseExcess
+    - HCO3
+    - FiO2
+    - pH
+    - PaCO2
+    - SaO2
+    - AST
+    - BUN
+    - Alkalinephos
+    - Calcium
+    - Chloride
+    - Creatinine
+    - Bilirubin_direct
+    - Glucose
+    - Lactate
+    - Magnesium
+    - Phosphate
+    - Potassium
+    - Bilirubin_total
+    - TroponinI
+    - Hct
+    - Hgb
+    - PTT
+    - WBC
+    - Fibrinogen
+    - Platelets
 
   demographic_features:
-    - Age             # Years
-    - Gender          # Binary (0/1)
-    - Unit1           # ICU type — MICU (binary)
-    - Unit2           # ICU type — SICU (binary)
-    - HospAdmTime     # Hours between hospital admit and ICU admit
-    - ICULOS          # ICU length of stay at this observation (hours)
+    - Age
+    - Gender
+    - Unit1
+    - Unit2
+    - HospAdmTime
+    - ICULOS
 
-# ── Streaming / simulation ───────────────────────────────────
 streaming:
-  speed_multiplier: 60             # 60x real-time (1 simulated hour per 60s)
-  batch_size: 10                   # events per online update cycle
+  speed_multiplier: 60
+  batch_size: 10
   kafka_enabled: false
   kafka_bootstrap_servers: "localhost:9092"
   kafka_topic: "patient_vitals"
 
-# ── Online model ─────────────────────────────────────────────
 online_model:
-  type: "hoeffding_adaptive_tree"  # hoeffding_adaptive_tree | logistic_regression
-  learning_rate: 0.01              # for logistic regression variant
+  type: "hoeffding_adaptive_tree"
+  learning_rate: 0.01
   snapshot_every_n_predictions: 100
-  shadow_mode: false               # true = predict but don't show alerts
+  shadow_mode: false
 
-# ── Baseline / safety net ─────────────────────────────────────
 baseline:
   model_path: "models/baseline_model.pkl"
-  rollback_auroc_gap: 0.05        # rollback if online AUROC < baseline - this
+  rollback_auroc_gap: 0.05
 
-# ── Drift detection ───────────────────────────────────────────
+# Ensemble strategy controls how online + baseline scores are combined
+# Options: auto_rollback | online_only | baseline_only | weighted_blend
+ensemble:
+  strategy: "auto_rollback"
+  blend_online_weight: 0.6
+  blend_baseline_weight: 0.4
+
 drift:
   adwin_delta: 0.002
   page_hinkley_threshold: 50.0
   page_hinkley_alpha: 0.005
   ddm_warning_level: 2.0
   ddm_drift_level: 3.0
-  check_every_n: 50               # evaluate drift every N predictions
+  check_every_n: 50
 
-# ── Paths ─────────────────────────────────────────────────────
 paths:
-  data_dir: "data/physionet2019"          # root for PSV patient files
-  training_dir: "data/physionet2019/training"   # PSV files live here
+  data_dir: "data/training_setA"
+  training_dir: "data/training_setA/training"
   model_snapshots: "models/snapshots"
   audit_db: "logs/audit.db"
   baseline_model: "models/baseline_model.pkl"
   baseline_meta: "models/baseline_meta.json"
+  feature_importance: "models/feature_importance.json"
 
-# ── Dashboard ─────────────────────────────────────────────────
 dashboard:
   refresh_interval_seconds: 5
   max_alerts_shown: 50
   high_risk_color: "#FF4B4B"
   medium_risk_color: "#FFA500"
   low_risk_color: "#00CC44"
+
+# Model card metadata — populated by train_baseline.py
+model_card:
+  name: "PhysioNet CinC 2019 Sepsis EWS"
+  version: "1.0"
+  description: "Predicts sepsis onset within 4-6 hours from streaming ICU vitals and labs."
+  dataset: "PhysioNet/CinC Challenge 2019"
+  intended_use: "Research and education only. Not validated for clinical use."
+  limitations:
+    - "No GCS / mental-status input"
+    - "Demographic features not de-biased"
+    - "Delayed labels (6h window)"
+  clinical_scores: ["NEWS2", "qSOFA", "SIRS", "SOFA (partial)"]

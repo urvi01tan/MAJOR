@@ -1,36 +1,15 @@
-"""
-Main Pipeline Orchestrator
-===========================
-Ties all components together into a single streaming pipeline.
-
-Flow per event:
-  Event → WindowAggregator → MissingDataHandler
-       → EnsembleSelector.predict()
-       → DriftDetector.update()
-       → Explainer.explain()
-       → AuditLogger.log_prediction()
-       → ModelRegistry.maybe_snapshot()
-       → Online model delayed label update (via enqueue_for_update)
-
-Also handles:
-  - Clinician feedback ingestion → online model labelled update
-  - Periodic stats reporting
-  - Graceful shutdown (flush + snapshot)
-"""
-
 from __future__ import annotations
 
 import logging
 import threading
-import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable
 
 import yaml
 
 from src.audit.logger import AuditLogger
+from src.clinical.scores import clinical_bundle
 from src.drift.detector import DriftDetector
 from src.explainability.explainer import Explainer
 from src.features.missing_handler import MissingDataHandler
@@ -49,17 +28,6 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
 
 
 class EWSPipeline:
-    """
-    Early Warning System pipeline.
-
-    Usage:
-        pipeline = EWSPipeline()
-        pipeline.start()
-        for event in stream:
-            result = pipeline.process_event(event)
-        pipeline.shutdown()
-    """
-
     def __init__(self, cfg_path: str = "config/settings.yaml"):
         self.cfg = _load_cfg(cfg_path)
         self._cfg_path = cfg_path
@@ -69,22 +37,21 @@ class EWSPipeline:
         self._started_at: datetime | None = None
         self._lock = threading.Lock()
 
-        # Recent results buffer for dashboard
-        self._recent_results: deque[dict] = deque(maxlen=500)
+        self._recent_results: deque[dict] = deque(maxlen=800)
+        self._patient_history: dict[str, deque] = {}
         self._patient_latest: dict[str, dict] = {}
-
-        # Callbacks (e.g., dashboard refresh trigger)
+        self._acknowledged: set[str] = set()
+        self._watchlist: set[str] = set()
         self._alert_callbacks: list[Callable[[dict], None]] = []
+        self._label_map: dict[str, int] = {}
+        self._alert_timestamps: deque[datetime] = deque(maxlen=5000)
 
-        log.info("[EWSPipeline] Initialising components …")
         self._init_components()
 
     def _init_components(self) -> None:
-        # Feature layer
         self.aggregator = WindowAggregator(self._cfg_path)
         self.imputer = MissingDataHandler(self._cfg_path)
 
-        # Models
         self.online_model = OnlineModel(self._cfg_path)
         self.baseline_model = BaselineModel(self._cfg_path)
         try:
@@ -92,8 +59,7 @@ class EWSPipeline:
             log.info("[EWSPipeline] Baseline model loaded.")
         except FileNotFoundError:
             log.warning(
-                "[EWSPipeline] Baseline model not found — run scripts/train_baseline.py. "
-                "Using online model only (shadow mode disabled)."
+                "[EWSPipeline] Baseline model not found — run scripts/train_baseline.py"
             )
 
         self.selector = EnsembleSelector(self.online_model, self.baseline_model, self._cfg_path)
@@ -102,58 +68,42 @@ class EWSPipeline:
         self.explainer = Explainer(self.online_model, self.baseline_model)
         self.audit = AuditLogger(self._cfg_path)
 
-        # Label tracking per admission (for delayed online updates)
-        self._label_map: dict[str, int] = {}  # hadm_id → label
-
-    # ------------------------------------------------------------------
     def start(self) -> "EWSPipeline":
         self._started_at = datetime.utcnow()
-        log.info("[EWSPipeline] ▶  Pipeline started.")
+        log.info("[EWSPipeline] Pipeline started.")
         return self
 
     def shutdown(self) -> None:
-        """Gracefully flush and snapshot before shutdown."""
-        log.info("[EWSPipeline] Shutting down — taking final snapshot …")
+        log.info("[EWSPipeline] Shutting down — saving snapshot.")
         self.registry.snapshot(reason="shutdown")
-        log.info(
-            f"[EWSPipeline] Done. Events={self._n_events}, "
-            f"Predictions={self._n_predictions}, Alerts={self._n_alerts}"
-        )
 
-    # ------------------------------------------------------------------
     def process_event(self, event: dict) -> dict | None:
-        """
-        Process a single streaming event.
-
-        Args:
-            event: dict from StreamSimulator (patient_id, feature_name, value, timestamp…)
-
-        Returns:
-            Prediction result dict, or None if prediction was not triggered.
-        """
         with self._lock:
             self._n_events += 1
 
             patient_id = event["patient_id"]
-            hadm_id = event.get("hadm_id")
+            hadm_id = event.get("hadm_id") or patient_id
             stay_id = event.get("stay_id")
             ts: datetime = event["timestamp"]
+            sepsis_label = event.get("sepsis_label")
 
-            # 1. Update feature windows
             features_raw = self.aggregator.update(event)
             if not features_raw:
                 return None
 
-            # 2. Impute missing values
             features = self.imputer.impute_and_update(features_raw)
 
-            # 3. Predict
             result = self.selector.predict(patient_id, features, now=ts)
             result["hadm_id"] = hadm_id
             result["stay_id"] = stay_id
+            result["acknowledged"] = patient_id in self._acknowledged
+            result["on_watchlist"] = patient_id in self._watchlist
             self._n_predictions += 1
 
-            # 4. Detect drift
+            vitals = self.aggregator.latest_vitals(patient_id)
+            clinical = clinical_bundle(vitals)
+            result.update(clinical)
+
             drift_events = self.drift_detector.update(
                 prediction_score=result["risk_score"],
                 now=ts,
@@ -162,48 +112,64 @@ class EWSPipeline:
                 self.audit.log_drift_event(
                     de.to_dict(), self.online_model.version, action_taken="logged_only"
                 )
-                # Take pre-drift snapshot for rollback safety
                 self.registry.snapshot(reason=f"pre_drift_{de.detector}")
 
-            # 5. Generate explanation (only for alerts or high-risk)
             explanation = None
             if result["risk_score"] >= self.cfg["alerting"]["risk_threshold"] * 0.8:
                 explanation = self.explainer.explain(
                     features, result["risk_score"], model_used=result["model_used"]
                 )
 
-            # 6. Audit log
             prediction_id = self.audit.log_prediction(result, features, explanation)
             result["prediction_id"] = prediction_id
             result["explanation"] = explanation
 
-            # 7. Enqueue for online model update (label arrives later)
-            self.online_model.enqueue_for_update(features, ts)
+            eventual = None
+            if sepsis_label is not None:
+                eventual = int(sepsis_label)
+            elif patient_id in self._label_map:
+                eventual = self._label_map[patient_id]
+            elif hadm_id in self._label_map:
+                eventual = self._label_map[hadm_id]
 
-            # 8. If label is known for this admission, provide it
-            if hadm_id and hadm_id in self._label_map:
-                self.online_model.provide_label(hadm_id, self._label_map[hadm_id], ts)
+            self.online_model.enqueue_for_update(
+                features, ts, patient_id=patient_id, eventual_label=eventual
+            )
 
-            # 9. Auto-snapshot
             self.registry.maybe_snapshot()
 
-            # 10. Alert callbacks
             if result.get("alert"):
                 self._n_alerts += 1
+                self._acknowledged.discard(patient_id)
                 for cb in self._alert_callbacks:
                     try:
                         cb(result)
                     except Exception:
                         pass
 
-            # 11. Store for dashboard
             self._recent_results.append(result)
             self._patient_latest[patient_id] = result
+
+            # Track per-patient history (last 200 predictions per patient)
+            if patient_id not in self._patient_history:
+                self._patient_history[patient_id] = deque(maxlen=200)
+            self._patient_history[patient_id].append({
+                "timestamp": result.get("timestamp"),
+                "risk_score": result.get("risk_score", 0),
+                "online_score": result.get("online_score", 0),
+                "baseline_score": result.get("baseline_score", 0),
+                "alert": result.get("alert", False),
+                "news2": result.get("news2"),
+                "sofa": result.get("sofa"),
+                "severity": result.get("severity"),
+            })
+
+            if result.get("alert"):
+                self._alert_timestamps.append(ts)
 
             return result
 
     def process_batch(self, events: list[dict]) -> list[dict]:
-        """Process a batch of events, returning results for each."""
         results = []
         for event in events:
             r = self.process_event(event)
@@ -211,54 +177,112 @@ class EWSPipeline:
                 results.append(r)
         return results
 
-    # ------------------------------------------------------------------
     def ingest_feedback(
         self,
         prediction_id: str,
         patient_id: str,
-        hadm_id: str,
-        feedback: str,
+        hadm_id: str | None = None,
+        feedback: str = "true_positive",
         clinician_id: str = "anonymous",
         notes: str = "",
     ) -> None:
-        """
-        Ingest clinician feedback and use it to update the online model.
-        feedback: "true_positive" | "false_positive"
-        """
         label = 1 if feedback == "true_positive" else 0
-        self._label_map[hadm_id] = label
-        self.online_model.provide_label(hadm_id, label)
+        key = hadm_id or patient_id
+        self._label_map[key] = label
+        self._label_map[patient_id] = label
+        self.online_model.provide_label(patient_id, label)
+        self.online_model.provide_label(key, label)
 
-        # Log feedback
         self.audit.log_feedback(prediction_id, patient_id, feedback, clinician_id, notes)
         self.audit.log_model_update(self.online_model, trigger="clinician_feedback", n_samples=1)
-
         log.info(f"[EWSPipeline] Clinician feedback: {feedback} for patient {patient_id}")
 
     def load_labels(self, label_map: dict[str, int]) -> None:
-        """Load batch of known labels {hadm_id → label} from historical data."""
         self._label_map.update(label_map)
-        for hadm_id, label in label_map.items():
-            self.online_model.provide_label(hadm_id, label)
+        for key, label in label_map.items():
+            self.online_model.provide_label(key, label)
         log.info(f"[EWSPipeline] Loaded {len(label_map)} labels from label map.")
 
-    # ------------------------------------------------------------------
+    def acknowledge_alert(self, patient_id: str) -> None:
+        self._acknowledged.add(patient_id)
+        latest = self._patient_latest.get(patient_id)
+        if latest:
+            latest["acknowledged"] = True
+
+    def toggle_watchlist(self, patient_id: str) -> bool:
+        if patient_id in self._watchlist:
+            self._watchlist.discard(patient_id)
+            return False
+        self._watchlist.add(patient_id)
+        return True
+
+    def set_alert_threshold(self, threshold: float) -> None:
+        self.cfg["alerting"]["risk_threshold"] = threshold
+        self.selector.set_alert_threshold(threshold)
+
     def add_alert_callback(self, callback: Callable[[dict], None]) -> None:
         self._alert_callbacks.append(callback)
 
-    # ------------------------------------------------------------------
     def recent_results(self, n: int = 50) -> list[dict]:
         results = list(self._recent_results)
         return results[-n:]
 
-    def high_risk_patients(self) -> list[dict]:
+    def high_risk_patients(self, include_acknowledged: bool = True) -> list[dict]:
         threshold = self.cfg["alerting"]["risk_threshold"]
         patients = list(self._patient_latest.values())
-        return sorted(
-            [p for p in patients if p["risk_score"] >= threshold],
-            key=lambda x: x["risk_score"],
-            reverse=True,
-        )
+        filtered = [p for p in patients if p.get("risk_score", 0) >= threshold]
+        if not include_acknowledged:
+            filtered = [p for p in filtered if not p.get("acknowledged")]
+        return sorted(filtered, key=lambda x: x.get("risk_score", 0), reverse=True)
+
+    def census(self) -> list[dict]:
+        patients = list(self._patient_latest.values())
+        return sorted(patients, key=lambda x: x.get("risk_score", 0), reverse=True)
+
+    def patient_risk_history(self, patient_id: str) -> list[dict]:
+        """Return time-series of risk predictions for a specific patient."""
+        hist = self._patient_history.get(patient_id)
+        return list(hist) if hist else []
+
+    def all_patient_risk_history(self, last_n: int = 100) -> dict[str, list[dict]]:
+        """Return risk history for all tracked patients (for heatmap)."""
+        return {
+            pid: list(hist)[-last_n:]
+            for pid, hist in self._patient_history.items()
+        }
+
+    def alert_rate_per_hour(self, window_hours: float = 1.0) -> float:
+        """Return number of alerts fired in the last `window_hours`."""
+        from datetime import timedelta
+        if not self._alert_timestamps:
+            return 0.0
+        cutoff = datetime.utcnow() - timedelta(hours=window_hours)
+        recent = [t for t in self._alert_timestamps if t >= cutoff]
+        return len(recent) / window_hours
+
+    def watchlist_patients(self) -> list[dict]:
+        return [
+            p for p in self._patient_latest.values()
+            if p.get("patient_id") in self._watchlist
+        ]
+
+    def shift_summary(self) -> dict[str, Any]:
+        census = self.census()
+        risk_bands = {"critical": 0, "high": 0, "watch": 0, "stable": 0}
+        for p in census:
+            band = p.get("severity", "stable")
+            if band not in risk_bands:
+                band = "stable"
+            risk_bands[band] += 1
+        audit = self.audit.shift_stats()
+        return {
+            "n_patients": len(census),
+            "risk_bands": risk_bands,
+            "n_watchlist": len(self._watchlist),
+            "n_acknowledged": len(self._acknowledged),
+            **audit,
+            **self.status(),
+        }
 
     def status(self) -> dict:
         uptime = None
@@ -276,4 +300,6 @@ class EWSPipeline:
             "rollback_count": self.selector.rollback_count,
             "total_drift_events": self.drift_detector.total_drift_count,
             "model_snapshots": self.registry.version_count(),
+            "alert_threshold": self.selector.alert_threshold,
+            "n_online_updates": self.online_model.n_updates,
         }
