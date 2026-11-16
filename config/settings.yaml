@@ -1,6 +1,6 @@
 outcome:
   label: "sepsis"
-  prediction_window_hours: 6
+  prediction_window_hours: 1    # 6 se 1 kiya → online model jaldi seekhega
   sofa_threshold: 2
 
 alerting:
@@ -74,10 +74,8 @@ baseline:
   model_path: "models/baseline_model.pkl"
   rollback_auroc_gap: 0.05
 
-# Ensemble strategy controls how online + baseline scores are combined
-# Options: auto_rollback | online_only | baseline_only | weighted_blend
 ensemble:
-  strategy: "auto_rollback"
+  strategy: "weighted_blend"   # online + baseline dono use hote hain
   blend_online_weight: 0.6
   blend_baseline_weight: 0.4
 

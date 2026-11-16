@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import yaml
 
 log = logging.getLogger(__name__)
@@ -56,11 +57,11 @@ class BaselineModel:
             log.warning("[BaselineModel] Not loaded — returning 0.0. Train with scripts/train_baseline.py")
             return 0.0
 
-        x = np.array(
-            [features.get(f, 0.0) if not math.isnan(features.get(f, float("nan"))) else 0.0
-             for f in self._feature_names],
-            dtype=float
-        ).reshape(1, -1)
+        values = [
+            features.get(f, 0.0) if not math.isnan(features.get(f, float("nan"))) else 0.0
+            for f in self._feature_names
+        ]
+        x = pd.DataFrame([values], columns=self._feature_names)
 
         try:
             proba = self._model.predict_proba(x)[0]

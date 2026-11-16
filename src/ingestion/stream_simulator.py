@@ -228,6 +228,83 @@ class StreamSimulator:
             yield batch
 
     # ------------------------------------------------------------------
+    def generate_random_events(self, n_patients: int = 12, high_risk_count: int = 4) -> list[dict]:
+        """
+        Generates new random clinical events for patients.
+        Guarantees at least `high_risk_count` patients receive abnormal vitals/labs
+        that trigger high-risk sepsis alerts.
+        """
+        import random
+        from datetime import datetime
+
+        events = []
+        now = datetime.now()
+
+        # High risk patients (at least 4)
+        for i in range(1, max(high_risk_count, 4) + 1):
+            pid = f"p_alert_{i:02d}"
+            vitals = {
+                "HR": random.uniform(122.0, 145.0),
+                "SBP": random.uniform(70.0, 86.0),
+                "MAP": random.uniform(50.0, 60.0),
+                "DBP": random.uniform(40.0, 50.0),
+                "Temp": random.uniform(38.7, 39.8),
+                "Resp": random.uniform(26.0, 35.0),
+                "O2Sat": random.uniform(86.0, 91.0),
+                "Lactate": random.uniform(3.8, 5.8),
+                "WBC": random.uniform(16.0, 24.0),
+                "Creatinine": random.uniform(2.2, 4.0),
+                "Platelets": random.uniform(65.0, 105.0),
+                "BUN": random.uniform(38.0, 68.0),
+                "Age": float(62 + i * 3),
+                "Gender": float(i % 2),
+                "ICULOS": random.randint(12, 48),
+            }
+            for feat, val in vitals.items():
+                source = "vital" if feat in VITAL_COLS else ("lab" if feat in LAB_COLS else "demographic")
+                events.append({
+                    "patient_id": pid,
+                    "timestamp": now,
+                    "source": source,
+                    "feature_name": feat,
+                    "value": float(val),
+                    "unit": "",
+                    "sepsis_label": 1,
+                    "iculos": vitals["ICULOS"],
+                })
+
+        # Regular/stable patients
+        for i in range(1, max(1, n_patients - high_risk_count) + 1):
+            pid = f"p_stable_{i:02d}"
+            vitals = {
+                "HR": random.uniform(66.0, 82.0),
+                "SBP": random.uniform(112.0, 126.0),
+                "MAP": random.uniform(78.0, 92.0),
+                "DBP": random.uniform(68.0, 78.0),
+                "Temp": random.uniform(36.6, 37.1),
+                "Resp": random.uniform(14.0, 18.0),
+                "O2Sat": random.uniform(97.0, 99.5),
+                "WBC": random.uniform(6.0, 9.5),
+                "Age": float(40 + i * 2),
+                "Gender": float(i % 2),
+                "ICULOS": random.randint(5, 30),
+            }
+            for feat, val in vitals.items():
+                source = "vital" if feat in VITAL_COLS else ("lab" if feat in LAB_COLS else "demographic")
+                events.append({
+                    "patient_id": pid,
+                    "timestamp": now,
+                    "source": source,
+                    "feature_name": feat,
+                    "value": float(val),
+                    "unit": "",
+                    "sepsis_label": 0,
+                    "iculos": vitals["ICULOS"],
+                })
+
+        return events
+
+    # ------------------------------------------------------------------
     def get_patient_labels(self) -> dict[str, int]:
         """
         Return {patient_id: max_sepsis_label} — 1 if patient ever had sepsis.
@@ -238,3 +315,4 @@ class StreamSimulator:
             for pid, df in self._patients
             if "SepsisLabel" in df.columns
         }
+

@@ -77,7 +77,7 @@ class ModelRegistry:
         self._last_snapshot_n = self.model.n_predictions
 
         log.info(
-            f"[Registry] Snapshot v{version} saved → {filename} "
+            f"[Registry] Snapshot v{version} saved -> {filename} "
             f"(reason={reason}, auroc={self.model.rolling_auroc:.3f})"
         )
         return entry

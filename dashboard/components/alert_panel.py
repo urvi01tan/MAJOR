@@ -1,5 +1,3 @@
-"""Active high-risk patient alert cards with clinician actions and SOFA score."""
-
 from __future__ import annotations
 
 import pandas as pd
@@ -8,7 +6,6 @@ import streamlit as st
 
 
 def _sparkline(values: list[float], color: str = "#F77F00", height: int = 60) -> go.Figure:
-    """Return a tiny Plotly sparkline figure."""
     fig = go.Figure(go.Scatter(
         y=values,
         mode="lines",
@@ -252,7 +249,7 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
     recent = audit_logger.recent_predictions(50)
     if recent:
         df = pd.DataFrame(recent)
-        df["alert_fired"] = df["alert_fired"].map({True: "🚨 YES", False: "·"})
+        df["alert_fired"] = df["alert_fired"].map({True: " YES", False: "·"})
         df["risk_score"] = df["risk_score"].map(lambda x: f"{x:.1%}" if x else "—")
         st.dataframe(df, use_container_width=True, hide_index=True)
     else:

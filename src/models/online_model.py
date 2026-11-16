@@ -252,7 +252,7 @@ class OnlineModel:
                 "n_updates": self._n_updates,
                 "model_type": self.model_type,
             }, f)
-        log.info(f"[OnlineModel] State saved → {path}")
+        log.info(f"[OnlineModel] State saved -> {path}")
 
     def load_state(self, path: str | Path) -> None:
         path = Path(path)
@@ -264,7 +264,7 @@ class OnlineModel:
         self._n_predictions = state["n_predictions"]
         self._n_updates = state["n_updates"]
         self.model_type = state["model_type"]
-        log.info(f"[OnlineModel] State loaded ← {path} (version {self.version})")
+        log.info(f"[OnlineModel] State loaded <- {path} (version {self.version})")
 
     def to_dict(self) -> dict:
         return {

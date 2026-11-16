@@ -83,19 +83,24 @@ def get_pipeline():
     p = EWSPipeline()
     p.start()
 
-    # Pre-populate pipeline with data on startup so dashboard opens with live predictions & alerts
+    # Pre-populate pipeline with data and synthetic high-risk alert patients so initial load is fast and shows alerts immediately
     try:
         sim = StreamSimulator()
-        sim.load_data(n_patients=50)
+        sim.load_data(n_patients=80)
         labels = sim.get_patient_labels()
         p.load_labels(labels)
-        
+
         n = 0
-        for event in sim.stream(n_patients=50, realtime=False):
+        for event in sim.stream(n_patients=80, realtime=False):
             p.process_event(event)
             n += 1
-            if n >= 350:
+            if n >= 300:
                 break
+
+        # Pre-generate 4+ high-risk alert patients right away
+        init_events = sim.generate_random_events(n_patients=12, high_risk_count=4)
+        for event in init_events:
+            p.process_event(event)
     except Exception as exc:
         print(f"Pre-population warning: {exc}")
 
@@ -120,11 +125,29 @@ def start_background_stream(pipeline, simulator):
             pipeline.load_labels(labels)
         except Exception:
             pass
-        for event in simulator.stream(n_patients=n_stays, realtime=False):
-            if not st.session_state.get("stream_running", False):
-                break
-            pipeline.process_event(event)
-            time.sleep(0.08)
+
+        dataset_stream = simulator.stream(n_patients=n_stays, realtime=False)
+
+        while st.session_state.get("stream_running", False):
+            # 1. Emit random events with at least 4 high-risk alert patients
+            random_events = simulator.generate_random_events(n_patients=12, high_risk_count=4)
+            for event in random_events:
+                if not st.session_state.get("stream_running", False):
+                    break
+                pipeline.process_event(event)
+
+            # 2. Also stream a batch of dataset events
+            for _ in range(15):
+                if not st.session_state.get("stream_running", False):
+                    break
+                try:
+                    event = next(dataset_stream)
+                    pipeline.process_event(event)
+                except StopIteration:
+                    dataset_stream = simulator.stream(n_patients=n_stays, realtime=False)
+
+            # 3. Sleep 4 seconds so new random data arrives every 4 seconds
+            time.sleep(4.0)
 
     st.session_state["stream_running"] = True
     t = threading.Thread(target=_run, daemon=True)
@@ -172,14 +195,14 @@ with st.sidebar:
 
     col_a, col_b = st.columns(2)
     with col_a:
-        if st.button("▶ Start", use_container_width=True, type="primary"):
+        if st.button("▶ Start", width="stretch", type="primary"):
             pipeline = get_pipeline()
             simulator = get_simulator()
             simulator.load_data(n_patients=n_stays)
             start_background_stream(pipeline, simulator)
             st.toast("✅ Stream started", icon="🚀")
     with col_b:
-        if st.button("⏹ Stop", use_container_width=True):
+        if st.button("⏹ Stop", width="stretch"):
             st.session_state["stream_running"] = False
             st.toast("Stream stopped", icon="⏹")
 
@@ -187,11 +210,18 @@ with st.sidebar:
     st.caption(f"Stream: {stream_status}")
 
     st.divider()
-    refresh = st.slider("Auto-refresh (s)", 3, 30, 5)
+    refresh = st.slider("Auto-refresh (s)", 3, 30, 4)
     st.caption("⚠️ Research demo only — not for clinical use")
 
 # ── Pipeline status & header ───────────────────────────────────────────────
 pipeline = get_pipeline()
+
+# Auto-start background stream on first load so data keeps flowing
+if not st.session_state.get("stream_running"):
+    simulator = get_simulator()
+    simulator.load_data(n_patients=st.session_state.get("n_stays_override", 80))
+    start_background_stream(pipeline, simulator)
+
 status = pipeline.status()
 active = status["active_model"]
 badge_class = (
