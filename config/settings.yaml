@@ -103,6 +103,41 @@ dashboard:
   medium_risk_color: "#FFA500"
   low_risk_color: "#00CC44"
 
+# LLM / chatbot — leave placeholders until a real provider is wired
+ai:
+  enabled: true
+  provider: "openai_compatible"   # openai | azure_openai | anthropic | openai_compatible
+  api_key: "YOUR_LLM_API_KEY_HERE"
+  api_key_env: "SEPSISGUARD_LLM_API_KEY"
+  base_url: "https://YOUR_LLM_BASE_URL_HERE/v1"
+  base_url_env: "SEPSISGUARD_LLM_BASE_URL"
+  model: "YOUR_LLM_MODEL_HERE"
+  model_env: "SEPSISGUARD_LLM_MODEL"
+  chat_completions_path: "/chat/completions"
+  timeout_seconds: 30
+  max_tokens: 800
+  temperature: 0.2
+  openai:
+    api_key: "YOUR_OPENAI_API_KEY_HERE"
+    base_url: "https://api.openai.com/v1"
+    model: "YOUR_OPENAI_MODEL_HERE"
+  azure_openai:
+    api_key: "YOUR_AZURE_OPENAI_API_KEY_HERE"
+    endpoint: "https://YOUR_AZURE_RESOURCE_NAME.openai.azure.com"
+    deployment: "YOUR_AZURE_DEPLOYMENT_NAME"
+    api_version: "YOUR_AZURE_API_VERSION_HERE"
+  anthropic:
+    api_key: "YOUR_ANTHROPIC_API_KEY_HERE"
+    base_url: "https://api.anthropic.com"
+    model: "YOUR_ANTHROPIC_MODEL_HERE"
+  gemini:
+    api_key: "YOUR_GEMINI_API_KEY_HERE"
+    base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
+    model: "gemini-1.5-flash"
+  ollama:
+    base_url: "http://localhost:11434/v1"
+    model: "llama3"
+
 # Model card metadata — populated by train_baseline.py
 model_card:
   name: "PhysioNet CinC 2019 Sepsis EWS"

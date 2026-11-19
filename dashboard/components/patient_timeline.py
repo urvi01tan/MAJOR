@@ -117,3 +117,12 @@ def render_patient_timeline(recent_results: list[dict], selected_patient: str | 
     fig.update_xaxes(showgrid=False)
     fig.update_yaxes(gridcolor="#333")
     st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander(f"✨ AI Deterioration Trajectory Analysis — Patient {chosen}"):
+        if latest:
+            from src.ai.services import AIAssistService
+            ai_service = AIAssistService()
+            narrative = ai_service.narrative.narrate(latest)
+            st.markdown(narrative.get("text", "No trajectory summary available."))
+        else:
+            st.info("No latest record available for this patient.")

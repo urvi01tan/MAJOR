@@ -210,16 +210,33 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
                         rows = []
                         for feat in top[:6]:
                             direction_icon = "⬆️" if feat.get("direction") == "increases_risk" else "⬇️"
-                            rows.append({
+                            row_dict = {
                                 "Feature": feat.get("plain_english", feat["feature"]),
+                                "Ref Range": feat.get("reference_range", "—"),
                                 "Value": f"{feat.get('value'):.2f}" if feat.get("value") is not None else "—",
                                 "Contribution": f"{feat.get('contribution', 0):.4f}",
                                 "Effect": f"{direction_icon} {'Risk ↑' if feat.get('direction') == 'increases_risk' else 'Risk ↓'}",
-                            })
+                            }
+                            if feat.get("clinical_justification"):
+                                row_dict["Clinical Rationale"] = feat.get("clinical_justification")
+                            rows.append(row_dict)
                         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
+                        case_examples = [f.get("case_example") for f in top[:4] if f.get("case_example")]
+                        if case_examples:
+                            st.markdown("##### 📖 Clinical Case Examples Justifying Abnormal Flags:")
+                            for eg in case_examples:
+                                st.markdown(f"- 🩺 *{eg}*")
+
+            # ── AI Clinical Narrative & Insights ──────────────────────────
+            with st.expander(f"✨ AI Clinical Insight — Patient {pid}"):
+                from src.ai.services import AIAssistService
+                ai_service = AIAssistService()
+                narrative_res = ai_service.narrative.narrate(patient)
+                st.markdown(narrative_res.get("text", "No narrative available."))
+
             # ── Action buttons ────────────────────────────────────────────
-            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 2])
+            c1, c2, c3, c4, c5 = st.columns([1, 1, 1, 1, 1.8])
             with c1:
                 if st.button("✅ True Alert", key=f"tp_{pred_id}_{pid}", type="primary"):
                     if pipeline is not None:
@@ -241,6 +258,15 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
                     if pipeline is not None:
                         on = pipeline.toggle_watchlist(pid)
                         st.toast(f"{'Added to' if on else 'Removed from'} watchlist: {pid}")
+            with c5:
+                if st.button("💬 Ask AI", key=f"ask_ai_{pred_id}_{pid}"):
+                    if "ai_chat_history" not in st.session_state:
+                        st.session_state["ai_chat_history"] = []
+                    st.session_state["ai_chat_history"].append({
+                        "role": "user",
+                        "content": f"Explain why patient {pid} is flagged at high risk and what the recommended checks are."
+                    })
+                    st.toast(f"Focus set to patient {pid}. Switch to '💬 AI Chatbot' tab to chat!", icon="💬")
 
             st.markdown("---")
 

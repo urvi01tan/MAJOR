@@ -113,6 +113,7 @@ class TestEnsembleSelectorE2E:
         online.rolling_auroc = online_auroc
         baseline = _make_baseline_mock()
         selector = EnsembleSelector(online, baseline, cfg_path="config/settings.yaml")
+        selector.strategy = "auto_rollback"
         return selector, online, baseline
 
     def test_uses_online_model_when_healthy(self):

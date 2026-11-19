@@ -181,6 +181,8 @@ with st.sidebar:
             "📋 Shift Handoff",
             "📊 Performance",
             "🃏 Model Card",
+            "💬 AI Chatbot",
+            "🧠 AI Assist",
             "⚙️ Admin",
         ],
         label_visibility="collapsed",
@@ -297,6 +299,14 @@ elif page == "🃏 Model Card":
     from dashboard.components.model_card import render_model_card
     render_model_card(pipeline)
 
+elif page == "💬 AI Chatbot":
+    from dashboard.components.ai_chatbot import render_ai_chatbot
+    render_ai_chatbot(pipeline)
+
+elif page == "🧠 AI Assist":
+    from dashboard.components.ai_assist import render_ai_assist
+    render_ai_assist(pipeline)
+
 elif page == "⚙️ Admin":
     st.title("⚙️ System Administration")
 
@@ -381,5 +391,7 @@ elif page == "⚙️ Admin":
     st.subheader("System Status")
     st.json(status)
 
-time.sleep(refresh)
-st.rerun()
+# Chat / AI pages keep session state; skip auto-refresh so typing is not interrupted
+if page not in ("💬 AI Chatbot", "🧠 AI Assist"):
+    time.sleep(refresh)
+    st.rerun()

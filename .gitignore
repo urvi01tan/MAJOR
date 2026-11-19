@@ -22,6 +22,10 @@ logs/
 *.db
 *.log
 
+# Secrets — never commit real keys
+.env
+.env.local
+
 # Pytest & IDE
 .pytest_cache/
 .vscode/

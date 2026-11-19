@@ -50,16 +50,18 @@ Hospitals currently rely on simple rule-based scores (NEWS2, qSOFA, SIRS). These
 | **SIRS** | Temp, HR, RR, WBC |
 | **SOFA** (partial) | FiO2/SaO2 ratio, Platelets, Bilirubin, Creatinine |
 
-### Dashboard (8 pages)
+### Dashboard (10 pages)
 | Page | What you see |
 |---|---|
-| 🚨 **Patient Alerts** | High-risk cards with SOFA badge, vital sparklines (risk/NEWS2/SOFA trends), explainability, clinician feedback buttons |
+| 🚨 **Patient Alerts** | High-risk cards with SOFA badge, vital sparklines (risk/NEWS2/SOFA trends), explainability, inline AI clinical insights, clinician feedback buttons |
 | 🏥 **Ward Census** | All patients ranked by ML risk, severity bar chart, CSV download, lab vitals toggle |
-| 📈 **Patient Timeline** | Risk vs online vs baseline score over time, alert markers, NEWS2 overlay |
+| 📈 **Patient Timeline** | Risk vs online vs baseline score over time, alert markers, NEWS2 overlay, inline AI deterioration trajectory analysis |
 | 🌡️ **Risk Heatmap** | Patient × time heatmap — spot clusters of deteriorating patients at a glance |
 | 📋 **Shift Handoff** | Severity donut chart, PPV from feedback, alert rate/hr, top-risk table |
 | 📊 **Performance** | Rolling AUROC chart, score distribution, online vs baseline scatter, precision-recall |
 | 🃏 **Model Card** | Model identity, performance metrics, feature importance bar chart, regulatory note |
+| 💬 **AI Chatbot** | Ward-aware conversational clinical assistant for active alerts, patient inquiries, scoring rules, and ML architecture |
+| 🧠 **AI Assist** | SBAR shift handoffs, patient alert narratives, Surviving Sepsis 1-Hour bundle checklists, what-if physiological simulations, and multi-organ breakdown |
 | ⚙️ **Admin** | Ensemble strategy selector, blend weights, rollback, shadow mode, audit CSV export |
 
 ---
@@ -113,6 +115,10 @@ SepsisGuard/
 │
 ├── src/
 │   ├── pipeline.py                 # Main orchestrator (EWSPipeline)
+│   ├── ai/
+│   │   ├── client.py               # Multi-provider LLM HTTP client (OpenAI, Gemini, Anthropic, Azure, Ollama)
+│   │   ├── clinical_engine.py      # Local clinical intelligence & heuristic reasoning engine (100% offline)
+│   │   └── services.py             # Chatbot, SBAR handoff, SSC bundle, what-if simulator
 │   ├── clinical/
 │   │   └── scores.py               # NEWS2, qSOFA, SIRS, SOFA (new)
 │   ├── features/
@@ -134,16 +140,18 @@ SepsisGuard/
 │       └── kafka_adapter.py        # Optional Kafka source
 │
 ├── dashboard/
-│   ├── app.py                      # Main Streamlit app (8 pages)
+│   ├── app.py                      # Main Streamlit app (10 pages)
 │   ├── monitoring.py               # Performance page
 │   └── components/
-│       ├── alert_panel.py          # Alert cards with sparklines + SOFA
+│       ├── alert_panel.py          # Alert cards with sparklines + SOFA + inline AI insight
 │       ├── ward_census.py          # Patient table with bar chart + CSV
-│       ├── patient_timeline.py     # Risk timeline chart
-│       ├── risk_heatmap.py         # [NEW] Patient × time risk heatmap
-│       ├── model_card.py           # [NEW] Model transparency card
+│       ├── patient_timeline.py     # Risk timeline chart + AI trajectory analysis
+│       ├── risk_heatmap.py         # Patient × time risk heatmap
+│       ├── model_card.py           # Model transparency card
 │       ├── shift_summary.py        # Donut chart + PPV + alert quality
-│       └── drift_chart.py          # Drift detector status
+│       ├── drift_chart.py          # Drift detector status
+│       ├── ai_chatbot.py           # [NEW] Ward-aware clinical chatbot
+│       └── ai_assist.py            # [NEW] Decision support suite (SBAR, SSC, What-If)
 │
 ├── scripts/
 │   ├── train_baseline.py           # Offline baseline training
@@ -253,6 +261,35 @@ Edit `config/settings.yaml`:
 | `drift.adwin_delta` | `0.002` | ADWIN sensitivity (smaller = more sensitive) |
 | `streaming.speed_multiplier` | `60` | Simulation speed (60× = 1 hour per second) |
 | `paths.training_dir` | `data/training_setA/training` | PSV file directory |
+| `ai.provider` | `openai_compatible` | LLM provider: `openai`, `gemini`, `anthropic`, `azure_openai`, `ollama` |
+| `ai.offline_mode` | `false` | If true, forces use of built-in Local Clinical Reasoning Engine |
+
+---
+
+## 🤖 AI Clinical Components & Decision Support
+
+SepsisGuard includes an integrated, ward-aware AI subsystem under `src/ai/`:
+
+### 1. Built-in Local Clinical Intelligence (100% Offline)
+- **Zero-setup instant readiness:** If external API keys are not supplied (or if running offline), the system automatically routes to `LocalClinicalEngine`.
+- **Clinical domain reasoning:** Evaluates ICU trends, interprets NEWS2/qSOFA/SIRS/SOFA scores, flags elevated shock index or lactate, and enforces Surviving Sepsis guidelines.
+
+### 2. Multi-Provider LLM Integration
+- Supports external LLM providers configured in `config/settings.yaml` (or environment variables):
+  - **OpenAI:** `gpt-4o`, `gpt-4o-mini`
+  - **Google Gemini:** `gemini-1.5-flash`, `gemini-1.5-pro` (via OpenAI-compatible endpoint)
+  - **Anthropic:** `claude-3-5-sonnet`
+  - **Azure OpenAI:** Deployments with custom api-version
+  - **Local Ollama:** `llama3`, `mistral`, `meditron` (`http://localhost:11434/v1`)
+
+### 3. Integrated Decision Support Tools
+- 💬 **Ward-Aware Clinical Chatbot (`ai_chatbot.py`):** Real-time conversational interface with quick clinical prompt chips, live patient focus selector, and chat transcript export.
+- 📋 **SBAR Shift Handoff Generator:** Synthesizes Situation, Background, Assessment, and Recommendation notes from streaming telemetry for ICU charge nurses.
+- 🚨 **Patient Alert Narratives:** Converts high-dimensional sliding-window feature attributions into structured clinical deterioration explanations.
+- 🩺 **Surviving Sepsis Campaign (SSC) 1-Hour Bundle Checklist:** Automated evaluation of lactate remeasurement, blood culture draws, broad-spectrum empiric antimicrobials, 30 mL/kg crystalloid fluid loading, and vasopressor indications.
+- 🔮 **Physiological What-If Counterfactual Simulator:** Interactively simulates changes in HR, MAP, Temp, Resp, and Lactate to estimate the delta in deterioration risk using the pipeline's scoring models.
+- 🫀 **Multi-Organ System Dysfunction Breakdown:** Evaluates organ strain across Cardiovascular, Respiratory, Renal, Coagulation, and Hepatic systems.
+- ✨ **Inline AI Insights:** Embedded directly within high-risk cards on the Patient Alerts page and the Patient Timeline.
 
 ---
 
