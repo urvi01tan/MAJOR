@@ -11,6 +11,19 @@ from datetime import datetime
 
 def render_patient_timeline(recent_results: list[dict], selected_patient: str | None = None) -> None:
     """Renders risk score timeline for selected patient."""
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #0f1923 0%, #152033 100%);
+                padding: 18px 24px; border-radius: 12px; border-left: 4px solid #F77F00;
+                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(247, 127, 0, 0.1);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
+            📈 Patient Physiological Deterioration Trajectory
+        </h2>
+        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
+            Longitudinal multi-hour risk scoring, vital sign trends, and explainable feature attributions over the patient ICU stay.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     if not recent_results:
         st.info("No predictions yet. Start the stream simulation to see data.")
         return

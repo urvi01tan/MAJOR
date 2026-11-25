@@ -20,56 +20,296 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-.main { background-color: #0a0e1a; }
-.block-container { padding-top: 1rem; }
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
-/* Header */
+/* Global Reset & Typography */
+html, body, [class*="css"], [class*="st-"] {
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Ambient Radial Glow Background */
+.stApp {
+    background: radial-gradient(circle at 12% 8%, rgba(0, 229, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 88% 18%, rgba(124, 77, 255, 0.04) 0%, transparent 45%),
+                #070a12 !important;
+    color: #e2e8f0;
+}
+
+.main { background: transparent !important; }
+.block-container { padding-top: 1.1rem; padding-bottom: 2rem; max-width: 96%; }
+
+/* Custom Thin Neon Scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #070a12; }
+::-webkit-scrollbar-thumb { background: #1e293b; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #00B4D8; }
+
+/* ── Header Card ───────────────────────────────────────────────────────── */
 .ews-header {
-    background: linear-gradient(135deg, #0f1923 0%, #1a1f35 50%, #0d1b2a 100%);
-    border-left: 4px solid #00B4D8;
-    border-radius: 10px;
-    padding: 18px 26px;
-    margin-bottom: 18px;
-    box-shadow: 0 4px 20px rgba(0,180,216,0.1);
+    background: linear-gradient(135deg, rgba(15, 23, 42, 0.88) 0%, rgba(10, 16, 30, 0.95) 100%);
+    backdrop-filter: blur(16px);
+    border: 1px solid rgba(0, 229, 255, 0.18);
+    border-left: 5px solid #00E5FF;
+    border-radius: 14px;
+    padding: 20px 26px;
+    margin-bottom: 22px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    position: relative;
+    overflow: hidden;
 }
+
+.ews-header::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0; width: 300px; height: 100%;
+    background: radial-gradient(circle at right, rgba(0, 229, 255, 0.06), transparent 70%);
+    pointer-events: none;
+}
+
 .ews-header h1 {
-    margin: 0; padding: 0; font-size: 1.45em;
-    color: #ffffff; font-weight: 700;
-    letter-spacing: -0.3px;
+    margin: 0; padding: 0; font-size: 1.55em;
+    color: #ffffff; font-weight: 800;
+    letter-spacing: -0.4px;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
 }
-.ews-header .subtitle { color: #7a8ba0; font-size: 0.82em; margin-top: 6px; }
-.ews-header .stats { color: #b0c4d8; font-size: 0.84em; margin-top: 8px; }
 
-/* Badges */
-.badge-online  { background: linear-gradient(90deg,#00CC44,#00aa33); color:#fff; padding:3px 12px; border-radius:12px; font-size:0.72em; font-weight:700; }
-.badge-baseline{ background: linear-gradient(90deg,#FFA500,#e09000); color:#fff; padding:3px 12px; border-radius:12px; font-size:0.72em; font-weight:700; }
-.badge-blend   { background: linear-gradient(90deg,#9B5DE5,#7b3db5); color:#fff; padding:3px 12px; border-radius:12px; font-size:0.72em; font-weight:700; }
-.badge-drift   {
-    background: linear-gradient(90deg,#FF4B4B,#cc2222);
-    color:#fff; padding:3px 12px; border-radius:12px;
-    font-size:0.72em; font-weight:700;
-    animation: pulse 1s infinite;
+.ews-header .subtitle {
+    color: #8da4be;
+    font-size: 0.84em;
+    margin-top: 6px;
+    font-weight: 400;
+    letter-spacing: 0.1px;
 }
-@keyframes pulse { 0%{opacity:1} 50%{opacity:0.65} 100%{opacity:1} }
 
-/* Sidebar */
-[data-testid="stSidebar"] { background: linear-gradient(180deg,#0f1923,#0a0e1a); }
-[data-testid="stSidebar"] .stRadio > label { color: #c0d0e0; }
-
-/* Metric cards */
-[data-testid="metric-container"] {
-    background: linear-gradient(135deg,#141929,#0f1923);
-    border: 1px solid #1e2a3a;
-    border-radius: 10px;
-    padding: 14px 16px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+.ews-header .stats {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
 }
-[data-testid="metric-container"]:hover {
-    border-color: #00B4D8;
-    box-shadow: 0 4px 16px rgba(0,180,216,0.15);
+
+.stat-chip {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 0.78em;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.stat-chip strong { color: #f8fafc; font-weight: 600; }
+.stat-chip.accent { border-color: rgba(0, 229, 255, 0.35); color: #00E5FF; }
+
+/* ── Live Pulse Animation ──────────────────────────────────────────────── */
+.pulse-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #00E676;
+    box-shadow: 0 0 10px #00E676;
+    animation: pulse-ring 1.8s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
+    margin-right: 4px;
+}
+
+@keyframes pulse-ring {
+    0% { transform: scale(0.9); opacity: 0.8; }
+    50% { transform: scale(1.3); opacity: 1; box-shadow: 0 0 14px #00E676; }
+    100% { transform: scale(0.9); opacity: 0.8; }
+}
+
+/* ── Badges with Ambient Neon Glow ─────────────────────────────────────── */
+.badge-online {
+    background: linear-gradient(135deg, rgba(0, 230, 118, 0.2), rgba(0, 204, 68, 0.35));
+    border: 1px solid #00E676;
+    color: #00E676;
+    padding: 3px 12px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700;
+    box-shadow: 0 0 12px rgba(0, 230, 118, 0.25);
+    letter-spacing: 0.4px;
+}
+
+.badge-baseline {
+    background: linear-gradient(135deg, rgba(255, 171, 0, 0.2), rgba(224, 144, 0, 0.35));
+    border: 1px solid #FFAB00;
+    color: #FFAB00;
+    padding: 3px 12px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700;
+    box-shadow: 0 0 12px rgba(255, 171, 0, 0.25);
+}
+
+.badge-blend {
+    background: linear-gradient(135deg, rgba(155, 93, 229, 0.2), rgba(123, 61, 181, 0.35));
+    border: 1px solid #9B5DE5;
+    color: #c77dff;
+    padding: 3px 12px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700;
+    box-shadow: 0 0 12px rgba(155, 93, 229, 0.3);
+}
+
+.badge-drift {
+    background: linear-gradient(135deg, rgba(255, 23, 68, 0.25), rgba(204, 34, 34, 0.4));
+    border: 1px solid #FF1744;
+    color: #FF5252;
+    padding: 3px 12px; border-radius: 20px;
+    font-size: 0.72em; font-weight: 700;
+    animation: drift-glow 1.2s infinite;
+}
+
+@keyframes drift-glow {
+    0%, 100% { opacity: 1; box-shadow: 0 0 14px rgba(255, 23, 68, 0.5); }
+    50% { opacity: 0.65; box-shadow: 0 0 6px rgba(255, 23, 68, 0.2); }
+}
+
+/* ── Sidebar Redesign ─────────────────────────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #090e18 0%, #050810 100%) !important;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] > div {
+    gap: 4px;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 6px 12px !important;
     transition: all 0.2s ease;
+    cursor: pointer;
+    color: #94a3b8 !important;
+    font-size: 0.88rem !important;
+    font-weight: 500 !important;
+}
+
+[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {
+    background: rgba(0, 229, 255, 0.06) !important;
+    border-color: rgba(0, 229, 255, 0.2) !important;
+    color: #ffffff !important;
+    transform: translateX(3px);
+}
+
+/* Active navigation item */
+[data-testid="stSidebar"] [data-testid="stRadio"] label[data-checked="true"],
+[data-testid="stSidebar"] [data-testid="stRadio"] div[aria-checked="true"] {
+    background: linear-gradient(90deg, rgba(0, 229, 255, 0.12), rgba(0, 229, 255, 0.03)) !important;
+    border-left: 3px solid #00E5FF !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+
+/* ── Metric Cards ──────────────────────────────────────────────────────── */
+[data-testid="metric-container"] {
+    background: linear-gradient(135deg, rgba(16, 24, 40, 0.75) 0%, rgba(10, 16, 28, 0.9) 100%) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-top: 2px solid rgba(0, 229, 255, 0.4) !important;
+    border-radius: 12px !important;
+    padding: 16px 18px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35) !important;
+    transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+[data-testid="metric-container"]:hover {
+    transform: translateY(-3px) !important;
+    border-color: rgba(0, 229, 255, 0.6) !important;
+    box-shadow: 0 8px 24px rgba(0, 229, 255, 0.15) !important;
+}
+
+[data-testid="metric-container"] [data-testid="stMetricLabel"] {
+    font-size: 0.75rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.5px !important;
+    text-transform: uppercase !important;
+    color: #8da4be !important;
+}
+
+[data-testid="metric-container"] [data-testid="stMetricValue"] {
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 1.55rem !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+}
+
+/* ── Modern Tabs ───────────────────────────────────────────────────────── */
+[data-baseweb="tab-list"] {
+    background: rgba(14, 20, 34, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-radius: 12px !important;
+    padding: 4px !important;
+    gap: 6px !important;
+}
+
+[data-baseweb="tab"] {
+    border-radius: 8px !important;
+    padding: 8px 18px !important;
+    color: #94a3b8 !important;
+    font-weight: 600 !important;
+    font-size: 0.85rem !important;
+    transition: all 0.2s ease !important;
+    border: none !important;
+}
+
+[data-baseweb="tab"]:hover {
+    color: #ffffff !important;
+    background: rgba(255, 255, 255, 0.04) !important;
+}
+
+[aria-selected="true"][data-baseweb="tab"] {
+    background: linear-gradient(135deg, rgba(0, 229, 255, 0.18) 0%, rgba(0, 180, 216, 0.25) 100%) !important;
+    color: #00E5FF !important;
+    border: 1px solid rgba(0, 229, 255, 0.35) !important;
+    box-shadow: 0 0 14px rgba(0, 229, 255, 0.15) !important;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+button[kind="primary"] {
+    background: linear-gradient(135deg, #00B4D8 0%, #0077B6 100%) !important;
+    border: none !important;
+    border-radius: 8px !important;
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    box-shadow: 0 4px 14px rgba(0, 180, 216, 0.35) !important;
+    transition: all 0.2s ease !important;
+}
+
+button[kind="primary"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 6px 20px rgba(0, 180, 216, 0.55) !important;
+}
+
+button[kind="secondary"] {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    border-radius: 8px !important;
+    color: #cbd5e1 !important;
+    transition: all 0.2s ease !important;
+}
+
+button[kind="secondary"]:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(0, 229, 255, 0.4) !important;
+    color: #ffffff !important;
+}
+
+/* ── Expanders ─────────────────────────────────────────────────────────── */
+[data-testid="stExpander"] {
+    background: rgba(14, 20, 33, 0.6) !important;
+    border: 1px solid rgba(255, 255, 255, 0.07) !important;
+    border-radius: 10px !important;
+    margin-bottom: 8px !important;
+}
+
+[data-testid="stExpander"]:hover {
+    border-color: rgba(0, 229, 255, 0.25) !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -163,10 +403,10 @@ if "n_stays_override" not in st.session_state:
 # ── Sidebar ────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
-    <div style='text-align:center;padding:12px 0 8px;'>
-      <span style='font-size:2.2em'>🏥</span><br>
-      <span style='font-size:1.1em;font-weight:700;color:#fff'>SepsisGuard</span><br>
-      <span style='font-size:0.75em;color:#7a8ba0'>Early Warning System</span>
+    <div style='text-align:center; padding:18px 8px 12px; background:linear-gradient(180deg, rgba(0, 229, 255, 0.08) 0%, transparent 100%); border-radius:12px; border:1px solid rgba(0, 229, 255, 0.15); margin-bottom:12px;'>
+      <div style='font-size:2.4em; filter: drop-shadow(0 0 10px rgba(0, 229, 255, 0.4));'>🏥</div>
+      <div style='font-size:1.25em; font-weight:800; color:#ffffff; letter-spacing:-0.3px; margin-top:4px;'>SepsisGuard</div>
+      <div style='font-size:0.75em; color:#00E5FF; font-weight:600; letter-spacing:0.5px; text-transform:uppercase;'>Clinical EWS Intelligence</div>
     </div>
     """, unsafe_allow_html=True)
     st.divider()
@@ -180,6 +420,7 @@ with st.sidebar:
             "🌡️ Risk Heatmap",
             "📋 Shift Handoff",
             "📊 Performance",
+            "⚡ Online Model Metrics",
             "🃏 Model Card",
             "💬 AI Chatbot",
             "🧠 AI Assist",
@@ -243,23 +484,25 @@ baseline_auroc_str = f"{baseline_auroc:.3f}" if baseline_auroc == baseline_auroc
 
 st.markdown(f"""
 <div class="ews-header">
-  <h1>SepsisGuard — Real-Time Deterioration EWS
-  &nbsp;<span class="{badge_class}">{active.upper()} MODEL</span>
-  &nbsp;{drift_badge}
+  <h1>
+    <span class="pulse-dot"></span>
+    SepsisGuard — Real-Time Deterioration EWS
+    &nbsp;<span class="{badge_class}">{active.upper()} MODEL</span>
+    &nbsp;{drift_badge}
   </h1>
   <div class="subtitle">
-    PhysioNet/CinC 2019 · Hoeffding Adaptive Tree + Logistic Regression Baseline · NEWS2 / qSOFA / SIRS / SOFA
+    PhysioNet/CinC 2019 Dataset &nbsp;·&nbsp; River Hoeffding Adaptive Tree & Logistic Regression Baseline &nbsp;·&nbsp; NEWS2 / qSOFA / SIRS / SOFA
   </div>
   <div class="stats">
-    🕐 {now_str}
-    &nbsp;|&nbsp; Events: <strong>{status['n_events_processed']:,}</strong>
-    &nbsp;|&nbsp; Predictions: <strong>{status['n_predictions']:,}</strong>
-    &nbsp;|&nbsp; Alerts: <strong>{status['n_alerts']:,}</strong>
-    &nbsp;|&nbsp; Patients: <strong>{status['n_patients_tracked']:,}</strong>
-    &nbsp;|&nbsp; Online AUROC: <strong>{status['online_auroc']:.3f}</strong>
-    &nbsp;|&nbsp; Baseline AUROC: <strong>{baseline_auroc_str}</strong>
-    &nbsp;|&nbsp; Threshold: <strong>{status.get('alert_threshold', 0.65):.0%}</strong>
-    &nbsp;|&nbsp; Updates: <strong>{status.get('n_online_updates', 0):,}</strong>
+    <span class="stat-chip">🕐 {now_str}</span>
+    <span class="stat-chip">Events: <strong>{status['n_events_processed']:,}</strong></span>
+    <span class="stat-chip">Predictions: <strong>{status['n_predictions']:,}</strong></span>
+    <span class="stat-chip" style="border-color: rgba(255, 75, 75, 0.4); color: #FF7B7B;">Alerts: <strong>{status['n_alerts']:,}</strong></span>
+    <span class="stat-chip">Census: <strong>{status['n_patients_tracked']:,} patients</strong></span>
+    <span class="stat-chip accent">Online AUROC: <strong>{status['online_auroc']:.3f}</strong></span>
+    <span class="stat-chip">Baseline: <strong>{baseline_auroc_str}</strong></span>
+    <span class="stat-chip">Threshold: <strong>{status.get('alert_threshold', 0.65):.0%}</strong></span>
+    <span class="stat-chip">Updates: <strong>{status.get('n_online_updates', 0):,}</strong></span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -294,6 +537,10 @@ elif page == "📊 Performance":
     render_monitoring_page(pipeline)
     st.divider()
     render_drift_chart(pipeline.drift_detector, pipeline.selector.status())
+
+elif page == "⚡ Online Model Metrics":
+    from dashboard.components.online_metrics import render_online_metrics
+    render_online_metrics(pipeline)
 
 elif page == "🃏 Model Card":
     from dashboard.components.model_card import render_model_card
@@ -391,7 +638,7 @@ elif page == "⚙️ Admin":
     st.subheader("System Status")
     st.json(status)
 
-# Chat / AI pages keep session state; skip auto-refresh so typing is not interrupted
-if page not in ("💬 AI Chatbot", "🧠 AI Assist"):
+# Chat / AI / Demo pages keep session state; skip auto-refresh so user actions are not interrupted
+if page not in ("💬 AI Chatbot", "🧠 AI Assist", "⚡ Online Model Metrics"):
     time.sleep(refresh)
     st.rerun()

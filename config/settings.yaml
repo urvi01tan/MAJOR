@@ -133,7 +133,7 @@ ai:
   gemini:
     api_key: "YOUR_GEMINI_API_KEY_HERE"
     base_url: "https://generativelanguage.googleapis.com/v1beta/openai"
-    model: "gemini-1.5-flash"
+    model: "gemini-2.5-flash"
   ollama:
     base_url: "http://localhost:11434/v1"
     model: "llama3"

@@ -22,6 +22,26 @@ def _load_cfg(cfg_path: str = "config/settings.yaml") -> dict:
         return yaml.safe_load(f) or {}
 
 
+def _load_env_file() -> None:
+    """Load key-value pairs from .env or .env.example into os.environ if not running under pytest."""
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    for fn in (".env", ".env.example"):
+        if os.path.exists(fn):
+            try:
+                with open(fn, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith("#") or "=" not in line:
+                            continue
+                        k, v = line.split("=", 1)
+                        k, v = k.strip(), v.strip().strip("'\"")
+                        if k and not is_placeholder_value(v) and k not in os.environ:
+                            os.environ[k] = v
+            except Exception:
+                pass
+
+
 def is_placeholder_value(value: Any) -> bool:
     if value is None:
         return True
@@ -40,10 +60,12 @@ class LLMClient:
     """Multi-provider LLM client with local clinical reasoning fallback."""
 
     def __init__(self, cfg_path: str = "config/settings.yaml"):
+        _load_env_file()
         self.cfg_path = cfg_path
         cfg = _load_cfg(cfg_path)
         self.cfg = cfg.get("ai") or {}
-        self.provider = str(self.cfg.get("provider") or "openai_compatible").lower()
+        env_prov = os.environ.get("SEPSISGUARD_LLM_PROVIDER")
+        self.provider = str(env_prov or self.cfg.get("provider") or "openai_compatible").lower()
         self.timeout = float(self.cfg.get("timeout_seconds") or 30)
         self.max_tokens = int(self.cfg.get("max_tokens") or 800)
         self.temperature = float(self.cfg.get("temperature") or 0.2)
@@ -54,31 +76,42 @@ class LLMClient:
     def _env_or(self, env_names: list[str], fallback: Any) -> Any:
         for name in env_names:
             val = os.environ.get(name)
-            if val:
+            if val and not is_placeholder_value(val):
                 return val
         return fallback
 
     def _resolve_credentials(self) -> None:
-        provider_block = self.cfg.get(self.provider) or {}
-
         key_env_var = self.cfg.get("api_key_env") or "SEPSISGUARD_LLM_API_KEY"
         possible_keys = [
             key_env_var,
-            "OPENAI_API_KEY",
             "GEMINI_API_KEY",
+            "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
             "AZURE_OPENAI_API_KEY",
         ]
+        provider_block = self.cfg.get(self.provider) or {}
         self.api_key = self._env_or(
             possible_keys,
             provider_block.get("api_key") or self.cfg.get("api_key"),
         )
 
+        # Smart provider auto-detection based on API key prefix
+        if self.api_key and not is_placeholder_value(self.api_key):
+            key_str = str(self.api_key).strip()
+            if key_str.startswith("AIzaSy"):
+                self.provider = "gemini"
+            elif key_str.startswith("sk-ant-"):
+                self.provider = "anthropic"
+            elif key_str.startswith("sk-") and self.provider == "openai_compatible":
+                self.provider = "openai"
+
+        provider_block = self.cfg.get(self.provider) or {}
+
         # 2. Base URL resolution
         url_env_var = self.cfg.get("base_url_env") or "SEPSISGUARD_LLM_BASE_URL"
         default_base_url = (
-            "https://api.openai.com/v1" if self.provider == "openai"
-            else "https://generativelanguage.googleapis.com/v1beta/openai" if self.provider == "gemini"
+            "https://generativelanguage.googleapis.com/v1beta/openai" if self.provider == "gemini"
+            else "https://api.openai.com/v1" if self.provider == "openai"
             else "https://api.anthropic.com" if self.provider == "anthropic"
             else "http://localhost:11434/v1" if self.provider in ("ollama", "local")
             else provider_block.get("base_url")
@@ -90,15 +123,19 @@ class LLMClient:
         # 3. Model resolution
         model_env_var = self.cfg.get("model_env") or "SEPSISGUARD_LLM_MODEL"
         default_model = (
-            "gpt-4o-mini" if self.provider == "openai"
-            else "gemini-1.5-flash" if self.provider == "gemini"
+            "gemini-2.5-flash" if self.provider == "gemini"
+            else "gpt-4o-mini" if self.provider == "openai"
             else "claude-3-5-sonnet-20241022" if self.provider == "anthropic"
             else "llama3" if self.provider in ("ollama", "local")
             else provider_block.get("model")
             or provider_block.get("deployment")
             or self.cfg.get("model")
         )
-        self.model = self._env_or([model_env_var], default_model)
+        resolved_model = self._env_or([model_env_var], default_model)
+        # Ensure deprecated gemini-1.5-flash is safely upgraded to gemini-2.5-flash
+        if self.provider == "gemini" and (is_placeholder_value(resolved_model) or resolved_model == "gemini-1.5-flash"):
+            resolved_model = "gemini-2.5-flash"
+        self.model = resolved_model
 
         # 4. Azure specifics
         self.api_version = provider_block.get("api_version") or self.cfg.get(
@@ -126,7 +163,7 @@ class LLMClient:
             "credentials_ready": ready,
             "using_placeholders": not ready,
             "offline_mode": self.offline_mode,
-            "mode_display": "External LLM (Live)" if ready else "Local Clinical Engine (Placeholder / Offline)",
+            "mode_display": "External LLM (Live)" if ready else "Local Clinical Intelligence Engine (Offline / Standalone)",
         }
 
     def _chat_url(self) -> str:

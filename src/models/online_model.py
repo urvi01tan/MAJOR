@@ -266,6 +266,44 @@ class OnlineModel:
         self.model_type = state["model_type"]
         log.info(f"[OnlineModel] State loaded <- {path} (version {self.version})")
 
+    def get_detailed_metrics(self) -> dict[str, Any]:
+        """Comprehensive telemetry of online learner for dashboard visualization."""
+        inner = self._model[-1]
+        metrics: dict[str, Any] = {
+            "model_type": self.model_type,
+            "version": self.version,
+            "created_at": self.created_at,
+            "n_predictions": self._n_predictions,
+            "n_updates": self._n_updates,
+            "rolling_auroc": self.rolling_auroc,
+            "recent_error_rate": self.recent_error_rate,
+            "queue_len": len(self._label_queue),
+            "confirmed_labels_count": len(self._confirmed_labels),
+            "prediction_window_hours": self.prediction_window_hours,
+        }
+
+        # Inspect tree properties if Hoeffding Adaptive Tree
+        if hasattr(inner, "summary"):
+            metrics["tree_summary"] = dict(inner.summary)
+            metrics["tree_height"] = getattr(inner, "height", 1)
+            metrics["n_nodes"] = getattr(inner, "n_nodes", 1)
+            metrics["n_leaves"] = getattr(inner, "n_leaves", 1)
+            metrics["n_active_leaves"] = getattr(inner, "n_active_leaves", 1)
+            metrics["n_inactive_leaves"] = getattr(inner, "n_inactive_leaves", 0)
+            metrics["n_alternate_trees"] = getattr(inner, "n_alternate_trees", 0)
+            metrics["n_switch_alternate_trees"] = getattr(inner, "n_switch_alternate_trees", 0)
+            metrics["n_pruned_alternate_trees"] = getattr(inner, "n_pruned_alternate_trees", 0)
+            metrics["grace_period"] = getattr(inner, "grace_period", 100)
+            metrics["delta"] = getattr(inner, "delta", 1e-5)
+            metrics["leaf_prediction"] = getattr(inner, "leaf_prediction", "nba")
+        else:
+            metrics["tree_summary"] = {}
+
+        if hasattr(inner, "weights"):
+            metrics["weights"] = dict(inner.weights)
+
+        return metrics
+
     def to_dict(self) -> dict:
         return {
             "version": self.version,

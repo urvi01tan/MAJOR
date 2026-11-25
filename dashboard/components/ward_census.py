@@ -10,8 +10,18 @@ import streamlit as st
 
 
 def render_ward_census(pipeline) -> None:
-    st.title("🏥 Ward Census")
-    st.caption("Every tracked patient, ranked by current ML deterioration risk.")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #091a28 0%, #102a43 100%);
+                padding: 18px 24px; border-radius: 12px; border-left: 4px solid #00E5FF;
+                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0, 229, 255, 0.1);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
+            🏥 ICU Ward Census & Risk Stratification
+        </h2>
+        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
+            Every tracked patient across the ICU, ranked by dual-model deterioration risk alongside NEWS2, qSOFA, SIRS, and SOFA scores.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     patients = pipeline.census()
     if not patients:

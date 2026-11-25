@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -84,17 +85,20 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
         return
 
     critical_count = sum(1 for p in patients if p.get("severity") == "critical")
-    banner_color = "#FF0A0A" if critical_count else "#FF4B4B"
+    glow_color = "rgba(255, 23, 68, 0.45)" if critical_count else "rgba(255, 75, 75, 0.35)"
+    border_c = "#FF1744" if critical_count else "#FF4B4B"
     st.markdown(
-        f"<div style='background:{banner_color};color:white;padding:10px 18px;"
-        f"border-radius:8px;display:inline-block;font-weight:bold;font-size:1.1em;"
-        f"animation:pulse 1.5s infinite;'>"
-        f"🚨 {len(patients)} HIGH-RISK PATIENT(S)"
-        f"{f' — {critical_count} CRITICAL' if critical_count else ''}"
-        f"</div>",
+        f"""<div style='background:linear-gradient(135deg, rgba(255, 23, 68, 0.15) 0%, rgba(200, 16, 46, 0.25) 100%);
+        border:1px solid {border_c}; color:#ffffff; padding:12px 22px; border-radius:10px;
+        display:inline-flex; align-items:center; gap:10px; font-weight:700; font-size:1.05em;
+        box-shadow: 0 0 20px {glow_color}; letter-spacing:0.2px;'>
+        <span style='display:inline-block; width:10px; height:10px; border-radius:50%; background:#FF1744; box-shadow:0 0 10px #FF1744;'></span>
+        🚨 {len(patients)} HIGH-RISK ALERT PATIENT(S)
+        {f'<span style="background:#FF1744; color:#fff; padding:2px 8px; border-radius:12px; font-size:0.8em; margin-left:6px;">{critical_count} CRITICAL</span>' if critical_count else ''}
+        </div>""",
         unsafe_allow_html=True,
     )
-    st.markdown("")
+    st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
 
     # ── Patient cards ─────────────────────────────────────────────────────
     for idx, patient in enumerate(patients):
@@ -114,14 +118,14 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
 
         # Colors
         if score >= 0.80:
-            border_color = "#FF0A0A"
-            card_bg = "rgba(255,10,10,0.07)"
+            border_color = "#FF1744"
+            card_bg = "linear-gradient(135deg, rgba(255, 23, 68, 0.12) 0%, rgba(20, 26, 40, 0.7) 100%)"
         elif score >= 0.65:
-            border_color = "#FF4B4B"
-            card_bg = "rgba(255,75,75,0.05)"
+            border_color = "#FF5252"
+            card_bg = "linear-gradient(135deg, rgba(255, 82, 82, 0.08) 0%, rgba(18, 24, 38, 0.7) 100%)"
         else:
             border_color = "#FFA500"
-            card_bg = "rgba(255,165,0,0.04)"
+            card_bg = "linear-gradient(135deg, rgba(255, 165, 0, 0.08) 0%, rgba(16, 22, 36, 0.7) 100%)"
 
         wl_badge = " 👁️ WATCHLIST" if on_wl else ""
         ack_badge = " ✓ ACK" if acked else ""
@@ -130,12 +134,15 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
             # Header row
             st.markdown(
                 f"""<div style='border-left:4px solid {border_color};
-                background:{card_bg};padding:12px 16px;border-radius:6px;
-                margin-bottom:6px;'>
-                <span style='font-size:1.1em;font-weight:700;'>Patient {pid}</span>
-                &nbsp;<span style='color:{border_color};font-weight:700;'>[{severity}]</span>
-                &nbsp;<span style='color:#aaa;font-size:0.85em;'>{ts}</span>
-                <span style='float:right;font-size:1.2em;font-weight:700;color:{border_color};'>
+                background:{card_bg}; padding:14px 18px; border-radius:10px;
+                border-top: 1px solid rgba(255,255,255,0.06);
+                border-right: 1px solid rgba(255,255,255,0.06);
+                border-bottom: 1px solid rgba(255,255,255,0.04);
+                margin-bottom:8px; box-shadow: 0 4px 16px rgba(0,0,0,0.3);'>
+                <span style='font-size:1.15em; font-weight:800; color:#ffffff;'>Patient {pid}</span>
+                &nbsp;<span style='color:{border_color}; font-weight:700; background:rgba(255,255,255,0.05); padding:2px 8px; border-radius:6px; font-size:0.85em;'>{severity}</span>
+                &nbsp;<span style='color:#7a8ba0; font-size:0.82em; font-family:"JetBrains Mono",monospace;'>{ts}</span>
+                <span style='float:right; font-size:1.3em; font-weight:800; color:{border_color}; font-family:"JetBrains Mono",monospace;'>
                 {score:.1%}{wl_badge}{ack_badge}
                 </span>
                 </div>""",

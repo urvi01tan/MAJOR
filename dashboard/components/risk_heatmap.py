@@ -8,11 +8,18 @@ import streamlit as st
 
 
 def render_risk_heatmap(pipeline) -> None:
-    st.title("🌡️ Patient Risk Heatmap")
-    st.caption(
-        "Each cell shows the latest ML risk score per patient across the last N "
-        "prediction steps. Red = high risk. Use this to spot clusters of deteriorating patients."
-    )
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #120e24 0%, #1c1438 100%);
+                padding: 18px 24px; border-radius: 12px; border-left: 4px solid #9B5DE5;
+                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(155, 93, 229, 0.12);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
+            🌡️ Ward-Wide Patient Risk Heatmap
+        </h2>
+        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
+            Patient &times; Time matrix of deterioration probabilities across sliding observation intervals. Red cells flag simultaneous clinical deterioration.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     col_ctrl1, col_ctrl2 = st.columns([2, 1])
     with col_ctrl1:

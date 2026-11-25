@@ -11,8 +11,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def render_monitoring_page(pipeline) -> None:
-    st.title("📊 EWS Performance Monitor")
-    st.caption("Real-time monitoring of model performance, drift, and alert rates.")
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #091a28 0%, #102a43 100%);
+                padding: 18px 24px; border-radius: 12px; border-left: 4px solid #00E5FF;
+                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0, 229, 255, 0.1);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
+            📊 Real-Time Clinical EWS Performance Monitor
+        </h2>
+        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
+            Dual-model AUROC tracking, distribution drift indicators, alarm rates, and calibration metrics across streaming ICU events.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     status = pipeline.status()
 

@@ -8,11 +8,18 @@ import streamlit as st
 
 
 def render_shift_summary(pipeline) -> None:
-    st.title("📋 Shift Handoff")
-    st.caption(
-        "Snapshot for charge-nurse handover: who is at risk, "
-        "how many alerts fired, and model health for the shift."
-    )
+    st.markdown("""
+    <div style="background: linear-gradient(135deg, #0f1c24 0%, #152c38 100%);
+                padding: 18px 24px; border-radius: 12px; border-left: 4px solid #00B4D8;
+                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0, 180, 216, 0.12);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
+            📋 ICU Shift Handoff & Quality Auditing Report
+        </h2>
+        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
+            End-of-shift charge nurse telemetry snapshot: active deterioration bands, alert precision/recall quality, and model health.
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     summary = pipeline.shift_summary()
     bands = summary.get("risk_bands", {})

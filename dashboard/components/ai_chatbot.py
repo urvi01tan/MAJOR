@@ -35,11 +35,11 @@ def render_ai_chatbot(pipeline) -> None:
     tracked_count = len(pipeline.census()) if hasattr(pipeline, "census") else 0
     c4.metric("Patients in Context", f"{tracked_count} tracked")
 
-    if status.get("using_placeholders"):
-        st.info(
-            "ℹ️ **Operating in Local Clinical Intelligence mode.** The assistant is using built-in ICU clinical reasoning "
-            "and ward context. To route queries to an external provider (OpenAI, Gemini, Anthropic, Azure, or Ollama), "
-            "set your API credentials in `config/settings.yaml`."
+    with st.expander("ℹ️ AI Engine & Multi-Provider Settings", expanded=False):
+        st.markdown(
+            "**Engine Status:** Operating in **Local Clinical Intelligence Mode** (Built-in ICU reasoning & ward context). "
+            "To connect external foundation LLMs (OpenAI, Google Gemini, Anthropic Claude, Azure OpenAI, or local Ollama), "
+            "configure `config/settings.yaml`."
         )
 
     # Quick prompt actions

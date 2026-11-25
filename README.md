@@ -140,13 +140,14 @@ SepsisGuard/
 │       └── kafka_adapter.py        # Optional Kafka source
 │
 ├── dashboard/
-│   ├── app.py                      # Main Streamlit app (10 pages)
+│   ├── app.py                      # Main Streamlit app (11 pages)
 │   ├── monitoring.py               # Performance page
 │   └── components/
 │       ├── alert_panel.py          # Alert cards with sparklines + SOFA + inline AI insight
 │       ├── ward_census.py          # Patient table with bar chart + CSV
 │       ├── patient_timeline.py     # Risk timeline chart + AI trajectory analysis
 │       ├── risk_heatmap.py         # Patient × time risk heatmap
+│       ├── online_metrics.py       # [NEW] Online model streaming telemetry & HAT metrics
 │       ├── model_card.py           # Model transparency card
 │       ├── shift_summary.py        # Donut chart + PPV + alert quality
 │       ├── drift_chart.py          # Drift detector status

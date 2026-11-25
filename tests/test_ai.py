@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.ai.client import LLMClient, is_placeholder_value
 from src.ai.clinical_engine import LocalClinicalEngine
 from src.ai.services import (
@@ -11,6 +13,12 @@ from src.ai.services import (
     compact_patient,
     ward_context,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clean_test_env(monkeypatch):
+    for k in ("GEMINI_API_KEY", "OPENAI_API_KEY", "SEPSISGUARD_LLM_API_KEY", "ANTHROPIC_API_KEY", "AZURE_OPENAI_API_KEY", "SEPSISGUARD_LLM_PROVIDER"):
+        monkeypatch.delenv(k, raising=False)
 
 
 def test_placeholder_detection():
@@ -33,7 +41,6 @@ def test_client_stays_in_placeholder_mode():
     )
     assert result["ok"] is True
     assert result["placeholder"] is True
-    # Response should contain clinically relevant content (no "placeholder mode" label)
     assert len(result["text"]) > 20
     assert "high risk" in result["text"].lower() or "ward" in result["text"].lower()
 
@@ -194,3 +201,15 @@ def test_clinical_abnormality_justifications_and_examples():
     assert lactate_just["category"] == "lactate"
     assert "anaerobic" in lactate_just["pathophysiology"].lower()
     assert len(lactate_just["random_example"]) > 10
+
+
+def test_online_model_detailed_metrics():
+    from src.models.online_model import OnlineModel
+    online = OnlineModel("config/settings.yaml")
+    m = online.get_detailed_metrics()
+    assert "model_type" in m
+    assert "rolling_auroc" in m
+    assert "n_updates" in m
+    assert "n_predictions" in m
+    assert "queue_len" in m
+    assert "tree_summary" in m
