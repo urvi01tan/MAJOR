@@ -17,11 +17,10 @@ def _service() -> AIAssistService:
 
 def render_ai_assist(pipeline) -> None:
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #101c2c 0%, #17223b 100%); padding: 18px 22px; border-radius: 10px; border-left: 4px solid #9B5DE5; margin-bottom: 20px;">
-        <h2 style="margin: 0; color: #ffffff; font-size: 1.4rem;">🧠 AI Clinical Decision Support & Assist Suite</h2>
-        <div style="color: #8da4be; font-size: 0.85rem; margin-top: 4px;">
-            Evidence-based tools for ICU shift handoffs, patient deterioration narratives, Surviving Sepsis protocols, and physiological what-if simulations.
-        </div>
+    <div style="background: linear-gradient(135deg, rgba(20, 16, 36, 0.7) 0%, rgba(12, 10, 24, 0.9) 100%);
+                padding: 14px 20px; border-radius: 10px; border-left: 4px solid #9B5DE5;
+                margin-bottom: 16px; border: 1px solid rgba(255, 255, 255, 0.06);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.3rem;">🧠 Clinical Decision Support Suite</h2>
     </div>
     """, unsafe_allow_html=True)
 
@@ -30,25 +29,18 @@ def render_ai_assist(pipeline) -> None:
     patients = pipeline.census() if hasattr(pipeline, "census") else []
     ids = [str(p.get("patient_id")) for p in patients if p.get("patient_id")]
 
-    # System Status Row
-    c1, c2, c3 = st.columns(3)
-    mode_text = "🟢 Live LLM" if status.get("credentials_ready") else "⚡ Local Clinical Intelligence"
-    c1.metric("AI Mode", mode_text)
-    c2.metric("Provider", str(status.get("provider", "—")).upper())
-    c3.metric("Monitored Patients", len(ids))
-
     tab_shift, tab_narr, tab_care, tab_whatif, tab_organs, tab_just = st.tabs([
         "📋 SBAR Shift Handoff",
         "🚨 Deterioration Narrative",
         "🩺 Sepsis Protocol Review",
-        "🔮 Physiological What-If Simulator",
-        "🫀 Organ System Breakdown",
-        "📖 Abnormality Justifications & Examples",
+        "🔮 What-If Simulator",
+        "🫀 Organ Breakdown",
+        "📖 Case Examples",
     ])
 
     # ── TAB 1: SBAR Shift Handoff ──────────────────────────────────────────
     with tab_shift:
-        st.subheader("📋 SBAR Shift Handoff Note (Situation, Background, Assessment, Recommendation)")
+        st.subheader("📋 SBAR Shift Handoff Note")
         st.caption("Generate a structured handoff note synthesized from the current census, risk scores, and model telemetry.")
 
         if st.button("✨ Generate SBAR Shift Summary", type="primary", key="btn_gen_sbar"):

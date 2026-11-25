@@ -104,6 +104,22 @@ class EWSPipeline:
             clinical = clinical_bundle(vitals)
             result.update(clinical)
 
+            # Clinical safety floor: ensure acute bedside deterioration (NEWS2 >= 7 or qSOFA >= 2 + SIRS >= 3)
+            # always surfaces an alert even while online/baseline ML models are warming up.
+            news2_val = clinical.get("news2") or 0
+            qsofa_val = clinical.get("qsofa") or 0
+            sirs_val = clinical.get("sirs") or 0
+            clinical_floor = 0.0
+            if news2_val >= 7:
+                clinical_floor = min(0.96, 0.68 + (news2_val - 7) * 0.04)
+            elif qsofa_val >= 2 and sirs_val >= 3:
+                clinical_floor = 0.68
+            if clinical_floor > result["risk_score"]:
+                result["risk_score"] = round(clinical_floor, 4)
+                result["severity"] = "critical" if result["risk_score"] >= 0.80 else "high"
+                if not result.get("alert"):
+                    result["alert"] = self.selector._should_alert(patient_id, result["risk_score"], ts)
+
             drift_events = self.drift_detector.update(
                 prediction_score=result["risk_score"],
                 now=ts,

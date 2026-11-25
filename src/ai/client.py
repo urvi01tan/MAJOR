@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 from typing import Any
 
 import requests
@@ -71,6 +72,7 @@ class LLMClient:
         self.temperature = float(self.cfg.get("temperature") or 0.2)
         self.offline_mode = bool(self.cfg.get("offline_mode", False))
         self.clinical_engine = LocalClinicalEngine()
+        self._rate_limited_until: float = 0.0
         self._resolve_credentials()
 
     def _env_or(self, env_names: list[str], fallback: Any) -> Any:
@@ -212,6 +214,10 @@ class LLMClient:
             payload_messages = [{"role": "system", "content": system}, *payload_messages]
         if not self.credentials_ready():
             return self._placeholder_response(payload_messages, context=context)
+        if time.monotonic() < self._rate_limited_until:
+            fallback = self._placeholder_response(payload_messages, context=context)
+            fallback["warning"] = "Live LLM rate-limited; using Local Clinical Engine during cooldown."
+            return fallback
 
         temp = self.temperature if temperature is None else temperature
         tokens = self.max_tokens if max_tokens is None else max_tokens
@@ -233,12 +239,25 @@ class LLMClient:
             }
 
         try:
-            response = requests.post(
-                self._chat_url(),
-                headers=self._headers(),
-                data=json.dumps(body),
-                timeout=self.timeout,
-            )
+            response = None
+            for attempt in range(3):
+                response = requests.post(
+                    self._chat_url(),
+                    headers=self._headers(),
+                    data=json.dumps(body),
+                    timeout=self.timeout,
+                )
+                if response.status_code != 429 or attempt == 2:
+                    break
+                retry_after = response.headers.get("Retry-After")
+                try:
+                    wait_s = min(float(retry_after), 4.0) if retry_after else 1.5 * (attempt + 1)
+                except ValueError:
+                    wait_s = 1.5 * (attempt + 1)
+                time.sleep(wait_s)
+
+            if response is not None and response.status_code == 429:
+                self._rate_limited_until = time.monotonic() + 60.0
             response.raise_for_status()
             data = response.json()
             text = self._extract_text(data)

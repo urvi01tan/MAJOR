@@ -38,13 +38,22 @@ def render_alert_panel(high_risk_patients: list[dict], audit_logger, pipeline=No
     st.subheader("Active High-Risk Alerts")
 
     # ── Filter controls ───────────────────────────────────────────────────
-    ctrl1, ctrl2, ctrl3 = st.columns([2, 1, 1])
+    ctrl1, ctrl2, ctrl3, ctrl4 = st.columns([2, 1, 1, 1.3])
     with ctrl1:
         hide_acked = st.checkbox("Hide acknowledged alerts", value=False)
     with ctrl2:
         min_sev = st.selectbox("Min severity", ["watch", "high", "critical"], index=0)
     with ctrl3:
         sort_by = st.selectbox("Sort by", ["Risk ↓", "NEWS2 ↓", "SOFA ↓"])
+    with ctrl4:
+        if pipeline and st.button("⚡ + Sepsis Cases", use_container_width=True):
+            from src.ingestion.stream_simulator import StreamSimulator
+            offset = st.session_state.get("sepsis_inject_offset", 10)
+            sim = StreamSimulator()
+            for event in sim.stream_sepsis_patients(max_patients=5, offset=offset):
+                pipeline.process_event(event)
+            st.session_state["sepsis_inject_offset"] = offset + 5
+            st.rerun()
 
     sev_order = {"stable": 0, "watch": 1, "high": 2, "critical": 3}
     min_sev_val = sev_order.get(min_sev, 1)

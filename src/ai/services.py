@@ -10,27 +10,24 @@ from src.ai.clinical_engine import LocalClinicalEngine, DISCLAIMER
 _DISCLAIMER = DISCLAIMER
 
 _SYSTEM_CHAT = (
-    "You are SepsisGuard Assistant, a research chatbot for an ICU early-warning "
-    "dashboard. Answer from the supplied ward context. If context is missing, say so. "
-    f"{_DISCLAIMER}"
+    "You are SepsisGuard Assistant, an intelligent clinical AI for an ICU early-warning system. "
+    "Provide clear, concise, direct answers based on the supplied ward context and clinical vitals. "
+    "Keep answers actionable and structured without repetitive disclaimer boilerplate."
 )
 
 _SYSTEM_SUMMARY = (
-    "Write a concise shift-handoff summary for ICU charge-nurse research use. "
-    "Use bullet points. Mention risk bands, top-risk patients, alerts, and model health. "
-    f"{_DISCLAIMER}"
+    "Write a concise, professional SBAR shift-handoff summary for ICU charge nurses. "
+    "Use bullet points. Mention risk bands, priority patients, active alerts, and model health."
 )
 
 _SYSTEM_NARRATIVE = (
-    "Turn structured sepsis-risk features into a short clinical narrative "
-    "(3-6 sentences). Cite NEWS2, qSOFA, SIRS, SOFA and top explanations when present. "
-    f"{_DISCLAIMER}"
+    "Turn structured sepsis-risk features into a clear, professional clinical narrative (3-5 sentences). "
+    "Cite NEWS2, qSOFA, SIRS, SOFA and primary physiological contributors."
 )
 
 _SYSTEM_SUGGEST = (
-    "Suggest research-only next checks for a deteriorating ICU patient "
-    "(monitoring, labs, review). Do not prescribe treatment. "
-    f"{_DISCLAIMER}"
+    "Suggest concise, evidence-based next checks for a deteriorating ICU patient "
+    "(vital monitoring, priority labs, organ review)."
 )
 
 

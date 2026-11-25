@@ -62,9 +62,14 @@ def render_monitoring_page(pipeline) -> None:
         with col1:
             st.subheader("Rolling AUROC vs Baseline")
             if "online_rolling_auroc" in df.columns:
+                auroc_series = df["online_rolling_auroc"].where(df["online_rolling_auroc"] > 0)
+                if auroc_series.notna().any():
+                    auroc_series = auroc_series.bfill().ffill()
+                else:
+                    auroc_series = df["online_rolling_auroc"]
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=df["timestamp"], y=df["online_rolling_auroc"],
+                    x=df["timestamp"], y=auroc_series,
                     mode="lines", name="Online AUROC",
                     line=dict(color="#00B4D8", width=2),
                     fill="tozeroy", fillcolor="rgba(0,180,216,0.06)",

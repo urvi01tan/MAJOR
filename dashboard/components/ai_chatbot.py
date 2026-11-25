@@ -15,53 +15,36 @@ def _service() -> AIAssistService:
 
 def render_ai_chatbot(pipeline) -> None:
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #101c2c 0%, #17223b 100%); padding: 18px 22px; border-radius: 10px; border-left: 4px solid #00B4D8; margin-bottom: 20px;">
-        <h2 style="margin: 0; color: #ffffff; font-size: 1.4rem;">💬 AI Clinical Chatbot & Assistant</h2>
-        <div style="color: #8da4be; font-size: 0.85rem; margin-top: 4px;">
-            Ward-aware ICU reasoning engine powered by streaming clinical vitals, NEWS2/SOFA scores, and dual-model ML predictions.
-        </div>
+    <div style="background: linear-gradient(135deg, rgba(16, 28, 44, 0.7) 0%, rgba(10, 16, 28, 0.9) 100%);
+                padding: 14px 20px; border-radius: 10px; border-left: 4px solid #00E5FF;
+                margin-bottom: 16px; border: 1px solid rgba(255, 255, 255, 0.06);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.3rem;">💬 Clinical AI Assistant</h2>
     </div>
     """, unsafe_allow_html=True)
 
     assist = _service()
     status = assist.status()
 
-    # Provider & Engine Status Bar
-    c1, c2, c3, c4 = st.columns([1.2, 1.2, 1.2, 1.4])
-    c1.metric("Provider", str(status.get("provider", "—")).upper())
-    c2.metric("Model", str(status.get("model", "—")))
-    mode_label = "🟢 Live LLM" if status.get("credentials_ready") else "⚡ Local Clinical Engine"
-    c3.metric("Engine Mode", mode_label)
-    tracked_count = len(pipeline.census()) if hasattr(pipeline, "census") else 0
-    c4.metric("Patients in Context", f"{tracked_count} tracked")
-
-    with st.expander("ℹ️ AI Engine & Multi-Provider Settings", expanded=False):
-        st.markdown(
-            "**Engine Status:** Operating in **Local Clinical Intelligence Mode** (Built-in ICU reasoning & ward context). "
-            "To connect external foundation LLMs (OpenAI, Google Gemini, Anthropic Claude, Azure OpenAI, or local Ollama), "
-            "configure `config/settings.yaml`."
-        )
-
     # Quick prompt actions
-    st.markdown("**Quick Clinical Inquiries:**")
+    st.markdown("**Quick Clinical Prompts:**")
     q_col1, q_col2, q_col3, q_col4, q_col5 = st.columns(5)
 
     prompt_to_submit = None
 
     with q_col1:
-        if st.button("🚨 Active High-Risk Alerts", use_container_width=True):
+        if st.button("🚨 Priority Alerts", width="stretch"):
             prompt_to_submit = "Summarize the active high-risk patients and their deterioration drivers."
     with q_col2:
-        if st.button("📋 SBAR Shift Handoff", use_container_width=True):
+        if st.button("📋 SBAR Handoff", width="stretch"):
             prompt_to_submit = "Generate an ICU SBAR shift handoff summary for current ward rounds."
     with q_col3:
-        if st.button("🩺 Explain NEWS2 & SOFA", use_container_width=True):
+        if st.button("🩺 Explain Scores", width="stretch"):
             prompt_to_submit = "Explain the clinical scoring criteria for NEWS2, qSOFA, and SOFA in this system."
     with q_col4:
-        if st.button("🤖 Dual-Model Architecture", use_container_width=True):
+        if st.button("🤖 Dual Model", width="stretch"):
             prompt_to_submit = "Explain how the online Hoeffding Adaptive Tree and baseline model interact with auto-rollback."
     with q_col5:
-        if st.button("💡 Justify Abnormalities", use_container_width=True):
+        if st.button("💡 Abnormalities", width="stretch"):
             prompt_to_submit = "Provide a clinical justification and random patient case example for abnormal vitals (such as tachycardia, elevated lactate, or hypotension)."
 
     # Patient-specific focus selector
@@ -82,6 +65,30 @@ def render_ai_chatbot(pipeline) -> None:
                 if st.button("🔍 Explain Selected Patient", use_container_width=True):
                     prompt_to_submit = f"Provide a detailed clinical narrative and deterioration breakdown for patient {selected_pid}."
 
+    # Feature-value interactive analyzer
+    with st.expander("🧪 Enter Patient Feature Values (Analyze & Describe)", expanded=False):
+        fc1, fc2, fc3, fc4, fc5 = st.columns(5)
+        hr_v = fc1.number_input("HR (bpm)", 30.0, 220.0, 128.0, step=2.0, key="cb_hr")
+        sbp_v = fc2.number_input("SBP (mmHg)", 40.0, 220.0, 84.0, step=2.0, key="cb_sbp")
+        map_v = fc3.number_input("MAP (mmHg)", 30.0, 150.0, 58.0, step=2.0, key="cb_map")
+        temp_v = fc4.number_input("Temp (°C)", 33.0, 42.0, 39.1, step=0.1, key="cb_temp")
+        resp_v = fc5.number_input("Resp (/min)", 6.0, 50.0, 28.0, step=1.0, key="cb_resp")
+
+        fc6, fc7, fc8, fc9, fc10 = st.columns(5)
+        o2_v = fc6.number_input("SpO₂ (%)", 60.0, 100.0, 89.0, step=1.0, key="cb_o2")
+        lac_v = fc7.number_input("Lactate (mmol/L)", 0.3, 20.0, 4.2, step=0.2, key="cb_lac")
+        wbc_v = fc8.number_input("WBC (×10³/µL)", 0.5, 50.0, 17.5, step=0.5, key="cb_wbc")
+        cr_v = fc9.number_input("Creatinine (mg/dL)", 0.2, 12.0, 2.4, step=0.1, key="cb_cr")
+        plt_v = fc10.number_input("Platelets (×10³/µL)", 10.0, 600.0, 95.0, step=5.0, key="cb_plt")
+
+        if st.button("🩺 Analyze Features & Describe", type="primary", use_container_width=True):
+            prompt_to_submit = (
+                f"Analyze these patient feature values and describe their clinical meaning: "
+                f"HR={hr_v:.0f}, SBP={sbp_v:.0f}, MAP={map_v:.0f}, Temp={temp_v:.1f}, "
+                f"Resp={resp_v:.0f}, O2Sat={o2_v:.0f}, Lactate={lac_v:.1f}, "
+                f"WBC={wbc_v:.1f}, Creatinine={cr_v:.1f}, Platelets={plt_v:.0f}"
+            )
+
     st.divider()
 
     # Chat history display
@@ -90,23 +97,14 @@ def render_ai_chatbot(pipeline) -> None:
 
     if not st.session_state["ai_chat_history"]:
         with st.chat_message("assistant"):
-            st.markdown(
-                "👋 **Welcome to SepsisGuard Clinical Assistant.**\n\n"
-                "I am integrated directly with the real-time ICU data stream and can answer questions regarding:\n"
-                "- Active deterioration alerts & priority patients\n"
-                "- SBAR shift handoff summaries\n"
-                "- Specific patient deterioration trajectories and feature attributions\n"
-                "- Clinical scoring rules (NEWS2, qSOFA, SIRS, SOFA)\n"
-                "- Surviving Sepsis Campaign (SSC) 1-Hour Bundle evaluation\n\n"
-                "*Select a quick prompt above or type a question below.*"
-            )
+            st.markdown("👋 How can I assist with ward telemetry, patient alerts, or protocols today?")
 
     for turn in st.session_state["ai_chat_history"]:
         with st.chat_message(turn["role"]):
             st.markdown(turn["content"])
 
     # Chat input
-    user_input = st.chat_input("Ask about ward status, a patient ID (e.g. P001), or sepsis protocols…")
+    user_input = st.chat_input("Ask about ward status, patient ID, or enter vitals (e.g. HR=130, SBP=82, Temp=39.2, Lactate=4.5)…")
     final_prompt = prompt_to_submit or user_input
 
     if final_prompt:

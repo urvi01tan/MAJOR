@@ -26,6 +26,10 @@ def _ensure_df(recent: list[dict[str, Any]], base_auroc: float) -> pd.DataFrame:
         if df["timestamp"].isna().all():
             now = datetime.now()
             df["timestamp"] = [now - timedelta(minutes=i * 2) for i in range(len(df))][::-1]
+        if "online_rolling_auroc" in df.columns:
+            valid = df["online_rolling_auroc"].where(df["online_rolling_auroc"] > 0)
+            if valid.notna().any():
+                df["online_rolling_auroc"] = valid.bfill().ffill()
     else:
         # Generate representative streaming series for cold-start demo
         now = datetime.now()
@@ -64,16 +68,10 @@ def _ensure_df(recent: list[dict[str, Any]], base_auroc: float) -> pd.DataFrame:
 
 def render_online_metrics(pipeline) -> None:
     st.markdown("""
-    <div style="background: linear-gradient(135deg, #091a28 0%, #102a43 100%);
-                padding: 18px 24px; border-radius: 10px; border-left: 4px solid #00CC44;
-                margin-bottom: 20px; box-shadow: 0 4px 20px rgba(0, 204, 68, 0.12);">
-        <h2 style="margin: 0; color: #ffffff; font-size: 1.45rem;">
-            ⚡ Online Model Telemetry & Streaming Graphs
-        </h2>
-        <div style="color: #9fb3c8; font-size: 0.85rem; margin-top: 4px;">
-            Real-time streaming evaluation of the River <code>HoeffdingAdaptiveTreeClassifier</code>
-            pipeline, delayed-label feedback queue, and auto-rollback safety arbitrator.
-        </div>
+    <div style="background: linear-gradient(135deg, rgba(9, 26, 40, 0.7) 0%, rgba(16, 42, 67, 0.9) 100%);
+                padding: 14px 20px; border-radius: 10px; border-left: 4px solid #00CC44;
+                margin-bottom: 16px; border: 1px solid rgba(255, 255, 255, 0.06);">
+        <h2 style="margin: 0; color: #ffffff; font-size: 1.3rem;">⚡ Online Model Metrics & Telemetry</h2>
     </div>
     """, unsafe_allow_html=True)
 
@@ -139,21 +137,17 @@ def render_online_metrics(pipeline) -> None:
 
     # ── Tabs for Academic Presentation ──────────────────────────────────────
     t_perf, t_tree, t_arbiter, t_demo = st.tabs([
-        "📈 Streaming Learning Dynamics (Graphs)",
-        "🌲 Hoeffding Tree Structure & Feature Weights",
-        "⚖️ Dual-Model Safety Arbiter & Calibration",
-        "🧪 Live Faculty Interactive Sandbox",
+        "📈 Learning Dynamics",
+        "🌲 Tree Structure",
+        "⚖️ Safety Arbiter",
+        "🧪 Demo Sandbox",
     ])
 
     # ═════════════════════════════════════════════════════════════════════════
-    # TAB 1: Streaming Learning Dynamics (Visual Graphs)
+    # TAB 1: Streaming Learning Dynamics
     # ═════════════════════════════════════════════════════════════════════════
     with t_perf:
-        st.subheader("📈 Real-Time Online Learning Curves & Stream Dynamics")
-        st.caption(
-            "Demonstrates continuous model adaptation on streaming non-stationary ICU data "
-            "with delayed ground-truth feedback (PhysioNet CinC 2019)."
-        )
+        st.subheader("📈 Online Learning Dynamics")
 
         # ── Graph Row 1: Rolling AUROC + Loss Curve ────────────────────────────
         c_g1, c_g2 = st.columns([1.6, 1.4])
@@ -390,18 +384,6 @@ def render_online_metrics(pipeline) -> None:
                 xaxis=dict(gridcolor="#1e2a3a"),
             )
             st.plotly_chart(fig_drift, width="stretch")
-
-        st.markdown("""
-        <div style="background:#101a26; padding:14px 18px; border-radius:8px; border:1px solid #1e2a3a; font-size:0.85rem;">
-            <strong>📐 Hoeffding Bound Mathematical Guarantee:</strong> River's HAT evaluates candidate splits after observing
-            <code>grace_period = 100</code> samples. Split selection occurs only when the observed difference in information gain
-            exceeds &epsilon; with confidence 1 - &delta; (&delta; = 10<sup>-5</sup>):
-            <div style="text-align:center; margin:8px 0; font-size:1.05rem; color:#00B4D8;">
-                &epsilon; = &radic; [ (R<sup>2</sup> &middot; ln(1/&delta;)) / (2n) ]
-            </div>
-            This mathematical guarantee ensures zero catastrophic forgetting while adapting continuously to shifting ICU demographics.
-        </div>
-        """, unsafe_allow_html=True)
 
     # ═════════════════════════════════════════════════════════════════════════
     # TAB 3: Dual-Model Safety Arbiter & Calibration

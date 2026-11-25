@@ -171,7 +171,7 @@ class LocalClinicalEngine:
             f"4. Confirm clinician feedback in the dashboard to maintain online learning accuracy."
         )
 
-        return f"### 📋 ICU SBAR Shift Handoff Summary\n\n{situation}\n\n{background}\n\n{assessment}\n\n{rec}\n\n> ⚠️ *{DISCLAIMER}*"
+        return f"### 📋 ICU SBAR Shift Handoff Summary\n\n{situation}\n\n{background}\n\n{assessment}\n\n{rec}"
 
     def generate_patient_narrative(self, patient: dict[str, Any]) -> str:
         """Create a clinical narrative for a specific patient deterioration alert."""
@@ -203,7 +203,6 @@ class LocalClinicalEngine:
             f"Clinical composite scores indicate concurrent physiological strain: **NEWS2 of {news2 or '—'}**, **qSOFA of {qsofa or '—'}**, **SIRS of {sirs or '—'}**, and **SOFA organ dysfunction score of {sofa or '—'}**.{reason_text}",
             "The multi-window trend shows acute deviation from baseline ICU stability over the preceding 1h–4h monitoring interval.",
             f"**Recommended next step:** Conduct prompt bedside clinical assessment, review hemodynamics (MAP/HR), and verify 1-hour sepsis protocol readiness.",
-            f"\n> ℹ️ *{DISCLAIMER}*",
         ]
         return "\n\n".join(lines)
 
@@ -226,10 +225,128 @@ class LocalClinicalEngine:
             "\n**Diagnostic Workup Considerations:**\n"
             "- Repeat arterial/venous blood gas with lactate in 2–4 hours.\n"
             "- Check Complete Blood Count (CBC) and Comprehensive Metabolic Panel (Creatinine, Bilirubin).\n"
-            "- Monitor fluid responsiveness (Passive Leg Raise or stroke volume variation) prior to excessive volume loading.\n"
-            f"\n> ⚠️ *{DISCLAIMER}*"
+            "- Monitor fluid responsiveness (Passive Leg Raise or stroke volume variation) prior to excessive volume loading."
         )
         return "\n".join(lines)
+
+    def describe_feature_values(self, features: dict[str, float]) -> str:
+        """Analyze user-provided vital/lab feature values and return a structured clinical description."""
+        from src.clinical.scores import clinical_bundle
+
+        clinical = clinical_bundle(features)
+        news2 = clinical.get("news2")
+        news2_risk = clinical.get("news2_risk", "low")
+        qsofa = clinical.get("qsofa")
+        qsofa_pos = clinical.get("qsofa_positive", False)
+        sirs = clinical.get("sirs")
+        sirs_pos = clinical.get("sirs_positive", False)
+        sofa = clinical.get("sofa")
+        sofa_risk = clinical.get("sofa_risk", "none")
+
+        # Reference ranges: (label, unit, low, high, crit_low, crit_high)
+        ref_ranges: dict[str, tuple[str, str, float, float, float | None, float | None]] = {
+            "HR": ("Heart Rate", "bpm", 60, 100, 40, 130),
+            "SBP": ("Systolic BP", "mmHg", 100, 140, 90, 180),
+            "MAP": ("Mean Arterial Pressure", "mmHg", 65, 105, 60, None),
+            "DBP": ("Diastolic BP", "mmHg", 60, 90, 45, None),
+            "Temp": ("Temperature", "°C", 36.1, 37.9, 35.0, 39.0),
+            "Resp": ("Respiratory Rate", "/min", 12, 20, 8, 25),
+            "O2Sat": ("SpO₂", "%", 94, 100, 90, None),
+            "Lactate": ("Serum Lactate", "mmol/L", 0.5, 2.0, None, 4.0),
+            "WBC": ("White Blood Cells", "×10³/µL", 4.0, 12.0, 2.0, 15.0),
+            "Creatinine": ("Creatinine", "mg/dL", 0.6, 1.3, None, 2.0),
+            "Platelets": ("Platelets", "×10³/µL", 150, 400, 100, None),
+            "Bilirubin_total": ("Total Bilirubin", "mg/dL", 0.2, 1.2, None, 2.0),
+        }
+
+        abnormal_notes: list[str] = []
+        table_lines = [
+            "| Feature | Value | Normal Range | Status |",
+            "|---|---|---|---|",
+        ]
+
+        for key, val in features.items():
+            if key in ref_ranges:
+                label, unit, lo, hi, clo, chi = ref_ranges[key]
+                status_str = "🟢 Normal"
+                if (clo is not None and val < clo) or (chi is not None and val > chi):
+                    status_str = "🔴 Critical"
+                    abnormal_notes.append(f"**{label}** is critically abnormal at **{val:.1f} {unit}** (normal {lo}–{hi}).")
+                elif val < lo or val > hi:
+                    status_str = "🟠 Abnormal"
+                    direction = "low" if val < lo else "elevated"
+                    abnormal_notes.append(f"**{label}** is {direction} at **{val:.1f} {unit}** (normal {lo}–{hi}).")
+                table_lines.append(f"| {label} (`{key}`) | **{val:.1f}** {unit} | {lo}–{hi} {unit} | {status_str} |")
+            else:
+                table_lines.append(f"| `{key}` | **{val:.1f}** | — | Recorded |")
+
+        # Overall clinical interpretation
+        n2_num = news2 or 0
+        q_num = qsofa or 0
+        s_num = sirs or 0
+        if n2_num >= 7 or (q_num >= 2 and s_num >= 2) or (features.get("Lactate", 0) >= 4.0):
+            overall = "🔴 **CRITICAL / HIGH SEPSIS RISK** — Immediate bedside evaluation and sepsis bundle review indicated."
+        elif n2_num >= 5 or q_num >= 2 or s_num >= 2 or len(abnormal_notes) >= 2:
+            overall = "🟠 **MODERATE / WATCH** — Physiological strain detected; close monitoring and repeat labs advised."
+        else:
+            overall = "🟢 **STABLE / LOW RISK** — Provided parameters are largely within acceptable ICU limits."
+
+        lines = [
+            "### 🩺 Feature Value Clinical Analysis",
+            overall,
+            "\n".join(table_lines),
+            (
+                f"**Computed Clinical Scores:** "
+                f"NEWS2: **{news2 if news2 is not None else '—'}** ({news2_risk}) · "
+                f"qSOFA: **{qsofa if qsofa is not None else '—'}** ({'Positive' if qsofa_pos else 'Negative'}) · "
+                f"SIRS: **{sirs if sirs is not None else '—'}** ({'Positive' if sirs_pos else 'Negative'}) · "
+                f"SOFA: **{sofa if sofa is not None else '—'}** ({sofa_risk})"
+            ),
+        ]
+
+        if abnormal_notes:
+            lines.append("**Clinical Description & Findings:**\n- " + "\n- ".join(abnormal_notes))
+        else:
+            lines.append("**Clinical Description & Findings:**\nNo critical vital or laboratory deviations detected in the supplied values.")
+
+        if n2_num >= 5 or q_num >= 2 or features.get("Lactate", 0) >= 2.0:
+            lines.append(
+                "**Recommended Actions:**\n"
+                "- Assess airway, breathing, circulation, and capillary refill.\n"
+                "- Check/repeat serum lactate and draw blood cultures if infection is suspected.\n"
+                "- Consider 30 mL/kg IV crystalloid if hypotensive (MAP < 65 mmHg or SBP < 90 mmHg)."
+            )
+
+        return "\n\n".join(lines)
+
+    @staticmethod
+    def _extract_feature_values(query: str) -> dict[str, float]:
+        """Parse vital/lab feature=value pairs from natural language or key=value text."""
+        alias_map = {
+            "heart rate": "HR", "hr": "HR", "pulse": "HR",
+            "systolic bp": "SBP", "systolic": "SBP", "sbp": "SBP", "bp": "SBP",
+            "mean arterial pressure": "MAP", "map": "MAP",
+            "diastolic bp": "DBP", "dbp": "DBP",
+            "temperature": "Temp", "temp": "Temp",
+            "respiratory rate": "Resp", "resp rate": "Resp", "resp": "Resp", "rr": "Resp",
+            "o2sat": "O2Sat", "spo2": "O2Sat", "o2": "O2Sat", "oxygen": "O2Sat",
+            "lactate": "Lactate",
+            "wbc": "WBC", "white blood cell": "WBC", "white blood cells": "WBC",
+            "creatinine": "Creatinine", "cr": "Creatinine",
+            "platelets": "Platelets", "platelet": "Platelets", "plt": "Platelets",
+            "bilirubin": "Bilirubin_total", "bili": "Bilirubin_total",
+            "age": "Age",
+        }
+        aliases_sorted = sorted(alias_map.keys(), key=len, reverse=True)
+        pattern = r"\b(" + "|".join(re.escape(a) for a in aliases_sorted) + r")\s*(?:=|:|\bis\b|\bof\b|\s)\s*(-?\d+(?:\.\d+)?)"
+        parsed: dict[str, float] = {}
+        for match in re.finditer(pattern, query.lower()):
+            canon = alias_map[match.group(1)]
+            try:
+                parsed[canon] = float(match.group(2))
+            except ValueError:
+                continue
+        return parsed
 
     def answer_chat_query(
         self,
@@ -243,6 +360,11 @@ class LocalClinicalEngine:
         high_risk = ctx.get("high_risk") or []
         census = ctx.get("census_top") or []
         status = ctx.get("status") or {}
+
+        # 0. Feature value analysis (e.g., "HR=130, SBP=82, Lactate=4.5, Temp=39.2")
+        extracted = self._extract_feature_values(query or "")
+        if len(extracted) >= 2 or (len(extracted) == 1 and ("=" in q or ":" in q)):
+            return self.describe_feature_values(extracted)
 
         # 1. Check for Patient ID lookup (e.g. P001, P004, patient 4, etc.)
         pat_match = re.search(r"\b(p\d+|\d+)\b", q)

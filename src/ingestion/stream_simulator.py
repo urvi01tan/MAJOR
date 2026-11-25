@@ -316,3 +316,41 @@ class StreamSimulator:
             if "SepsisLabel" in df.columns
         }
 
+    # ------------------------------------------------------------------
+    def stream_sepsis_patients(
+        self,
+        max_patients: int = 6,
+        offset: int = 0,
+    ) -> Generator[dict, None, None]:
+        """Yield events around sepsis onset for real PhysioNet patients with SepsisLabel == 1."""
+        files = sorted(self.training_dir.glob("*.psv"))
+        found = 0
+        yielded = 0
+        for f in files:
+            # Fast byte pre-check: SepsisLabel is the last column, so only parse files containing "|1"
+            try:
+                raw = f.read_bytes()
+            except OSError:
+                continue
+            if b"|1\n" not in raw and b"|1\r" not in raw and not raw.endswith(b"|1"):
+                continue
+
+            df = PhysioNetDataLoader.load_patient(f)
+            if "SepsisLabel" not in df.columns or int(df["SepsisLabel"].max()) != 1:
+                continue
+            if found < offset:
+                found += 1
+                continue
+            found += 1
+            pid = f.stem
+            # Stream a 4-hour window around sepsis onset so startup stays fast
+            onset_idx = int(df.index[df["SepsisLabel"] == 1][0])
+            start_idx = max(0, onset_idx - 2)
+            end_idx = min(len(df), onset_idx + 2)
+            for hour_index in range(start_idx, end_idx):
+                for event in self._row_to_events(pid, df.iloc[hour_index], hour_index):
+                    yield event
+            yielded += 1
+            if yielded >= max_patients:
+                break
+

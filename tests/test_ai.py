@@ -213,3 +213,14 @@ def test_online_model_detailed_metrics():
     assert "n_predictions" in m
     assert "queue_len" in m
     assert "tree_summary" in m
+
+
+def test_chatbot_feature_value_analysis():
+    from src.ai.clinical_engine import LocalClinicalEngine
+    engine = LocalClinicalEngine()
+    reply = engine.answer_chat_query("HR=132, SBP=82, MAP=56, Temp=39.2, Resp=28, O2Sat=88, Lactate=4.5")
+    assert "Feature Value Clinical Analysis" in reply
+    assert "NEWS2" in reply
+    assert "qSOFA" in reply
+    assert "CRITICAL" in reply
+    assert "Heart Rate" in reply
